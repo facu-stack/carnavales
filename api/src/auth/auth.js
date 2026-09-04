@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { Pool } from "pg";
-import { twoFactor } from "better-auth/plugins";
+import { emailOTP, twoFactor } from "better-auth/plugins";
 import {
   emailService,
   sendPasswordResetEmail,
@@ -24,6 +24,19 @@ export const auth = betterAuth({
     },
     onPasswordReset: async ({ user }, request) => {
       // Intentionally minimal - no sensitive data logged
+    },
+  },
+  user: {
+    additionalFields: {
+      dni: {
+        type: "string",
+        required: false,
+      },
+      isAdmin: {
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+      },
     },
   },
   trustedOrigins: [process.env.FRONTEND_URL],
@@ -59,6 +72,27 @@ export const auth = betterAuth({
             html: otpEmail({ otp }),
           });
         },
+      },
+    }),
+    emailOTP({
+      disableSignUp: true,
+      expiresIn: 300,
+      otpLength: 6,
+      storeOTP: "encrypted",
+      rateLimit: {
+        window: 300,
+        max: 5,
+      },
+      async sendVerificationOTP({ email, otp, type }) {
+        await emailService.send({
+          to: email,
+          subject:
+            type === "sign-in"
+              ? "Tu PIN de acceso - Carnavales"
+              : "Tu código de verificación - Carnavales",
+          otp,
+          html: otpEmail({ otp }),
+        });
       },
     }),
   ],

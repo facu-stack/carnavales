@@ -8,6 +8,8 @@ import pg from "pg";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth/auth.js";
 import protectedRoutes from "./routes/protected.routes.js";
+import loginPinRoutes from "./routes/login-pin.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -48,13 +50,35 @@ export function createApp({ rateLimitEnabled = true, authRateLimitMax = 10 } = {
       ["/api/auth/request-password-reset", "/api/auth/reset-password"],
       passwordResetLimiter
     );
+
+    const pinRequestLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 5,
+      message: { error: "Too many attempts. Please try again later." },
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+    app.use("/api/login-pin/request", pinRequestLimiter);
   }
+
+  const EMAIL_OTP_BLOCKED_PREFIXES = [
+    "/api/auth/email-otp/",
+    "/api/auth/forget-password/email-otp",
+  ];
+  app.use("/api/auth", (req, res, next) => {
+    if (EMAIL_OTP_BLOCKED_PREFIXES.some((prefix) => req.originalUrl.startsWith(prefix))) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    next();
+  });
 
   app.all("/api/auth/*", toNodeHandler(auth));
 
   app.use(express.json());
 
   app.use("/api", protectedRoutes);
+  app.use("/api", loginPinRoutes);
+  app.use("/api/admin", adminRoutes);
 
   app.use((err, req, res, next) => {
     console.error("Unexpected error:", err);

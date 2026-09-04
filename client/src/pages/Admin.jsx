@@ -1,0 +1,571 @@
+import { useState, useEffect, useCallback } from "react";
+import { useSession, signOut } from "../lib/auth-client";
+import { useNavigate } from "react-router-dom";
+import Header from "../components/Header";
+import { resetOtpSent } from "./VerifyCode";
+import { COMPARSAS, RUBROS } from "../lib/voting-data";
+import { loadVotingState } from "../lib/voting-storage";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API_URL}${path}`, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export default function Admin() {
+  const { data: session, isPending } = useSession();
+  const navigate = useNavigate();
+
+  const [comparsas, setComparsas] = useState([]);
+  const [rubros, setRubros] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const [editingComparsa, setEditingComparsa] = useState(null);
+  const [editingRubro, setEditingRubro] = useState(null);
+
+  const [newComparsa, setNewComparsa] = useState({ name: "", position: 0, colors: ["#ffffff"] });
+  const [newRubro, setNewRubro] = useState({ name: "", min_score: 5, max_score: 10 });
+  const [showAddComparsa, setShowAddComparsa] = useState(false);
+  const [showAddRubro, setShowAddRubro] = useState(false);
+
+  const [colorInput, setColorInput] = useState("#ffffff");
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await signOut();
+      resetOtpSent();
+      window.location.href = "/login";
+    } catch (err) {
+      console.error("Logout failed:", err);
+    }
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [c, r] = await Promise.all([
+        apiFetch("/api/admin/comparsas"),
+        apiFetch("/api/admin/rubros"),
+      ]);
+      setComparsas(c);
+      setRubros(r);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  if (isPending || loading) {
+    return <div className="container">Cargando...</div>;
+  }
+
+  if (!session) {
+    navigate("/login");
+    return null;
+  }
+
+  if (error) {
+    return (
+      <div className="app">
+        <Header onLogout={handleLogout} />
+        <main className="stage">
+          <div className="wrap">
+            <h1 className="screen-title">Panel de Administración</h1>
+            <div className="notice" style={{ marginTop: 18 }}>
+              Error: {error}
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const handleAddColor = (setState, state) => {
+    if (colorInput && !state.colors.includes(colorInput)) {
+      setState({ ...state, colors: [...state.colors, colorInput] });
+      setColorInput("#ffffff");
+    }
+  };
+
+  const handleRemoveColor = (setState, state, idx) => {
+    setState({ ...state, colors: state.colors.filter((_, i) => i !== idx) });
+  };
+
+  const handleCreateComparsa = async () => {
+    try {
+      const created = await apiFetch("/api/admin/comparsas", {
+        method: "POST",
+        body: JSON.stringify(newComparsa),
+      });
+      setComparsas((prev) => [...prev, created].sort((a, b) => a.position - b.position));
+      setNewComparsa({ name: "", position: 0, colors: ["#ffffff"] });
+      setShowAddComparsa(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleUpdateComparsa = async (id) => {
+    try {
+      const updated = await apiFetch(`/api/admin/comparsas/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(editingComparsa),
+      });
+      setComparsas((prev) => prev.map((c) => (c.id === id ? updated : c)).sort((a, b) => a.position - b.position));
+      setEditingComparsa(null);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteComparsa = async (id) => {
+    if (!confirm("¿Eliminar esta comparsa?")) return;
+    try {
+      await apiFetch(`/api/admin/comparsas/${id}`, { method: "DELETE" });
+      setComparsas((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleCreateRubro = async () => {
+    try {
+      const created = await apiFetch("/api/admin/rubros", {
+        method: "POST",
+        body: JSON.stringify(newRubro),
+      });
+      setRubros((prev) => [...prev, created]);
+      setNewRubro({ name: "", min_score: 5, max_score: 10 });
+      setShowAddRubro(false);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleUpdateRubro = async (id) => {
+    try {
+      const updated = await apiFetch(`/api/admin/rubros/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(editingRubro),
+      });
+      setRubros((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      setEditingRubro(null);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteRubro = async (id) => {
+    if (!confirm("¿Eliminar este rubro?")) return;
+    try {
+      await apiFetch(`/api/admin/rubros/${id}`, { method: "DELETE" });
+      setRubros((prev) => prev.filter((r) => r.id !== id));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  return (
+    <div className="app">
+      <Header onLogout={handleLogout} />
+      <main className="stage">
+        <div className="wrap" style={{ maxWidth: 720 }}>
+          <h1 className="screen-title">Panel de Administración</h1>
+          <p className="screen-lede">Gestioná comparsas y rubros del jurado.</p>
+
+          {/* ---- Estado de votación ---- */}
+          <div className="admin-section">
+            <h2>Estado de votación del jurado</h2>
+            {(() => {
+              const { scores, confirmed } = loadVotingState();
+              const hasData = Object.keys(scores).length > 0 || confirmed.length > 0;
+              if (!hasData) {
+                return (
+                  <div className="notice">Todavía no hay votos cargados en esta sesión.</div>
+                );
+              }
+              return (
+                <table className="admin-table" style={{ marginTop: 8 }}>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Comparsa</th>
+                      <th>Rubros votados</th>
+                      <th>Planilla confirmada</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {COMPARSAS.map((name, i) => {
+                      const total = RUBROS.length;
+                      const filled = RUBROS.reduce(
+                        (count, _, r) => count + (scores[i]?.[r] != null ? 1 : 0),
+                        0
+                      );
+                      if (filled === 0 && !confirmed.includes(i)) return null;
+                      return (
+                        <tr key={i}>
+                          <td>{i + 1}</td>
+                          <td>{name}</td>
+                          <td>{filled}/{total}</td>
+                          <td>{confirmed.includes(i) ? "✓" : "Pendiente"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              );
+            })()}
+          </div>
+
+          {/* ---- Comparsas ---- */}
+          <div className="admin-section">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2>Comparsas</h2>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setShowAddComparsa(!showAddComparsa)}
+              >
+                {showAddComparsa ? "Cancelar" : "+ Nueva"}
+              </button>
+            </div>
+
+            {showAddComparsa && (
+              <div className="admin-form">
+                <div className="admin-field">
+                  <label>Nombre</label>
+                  <input
+                    type="text"
+                    value={newComparsa.name}
+                    onChange={(e) => setNewComparsa({ ...newComparsa, name: e.target.value })}
+                    placeholder="Nombre de la comparsa"
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Orden</label>
+                  <input
+                    type="number"
+                    value={newComparsa.position}
+                    onChange={(e) => setNewComparsa({ ...newComparsa, position: Number(e.target.value) })}
+                    style={{ width: 70 }}
+                  />
+                </div>
+                <div className="admin-field" style={{ flex: 1 }}>
+                  <label>Colores</label>
+                  <div className="admin-colors">
+                    {newComparsa.colors.map((c, i) => (
+                      <div
+                        key={i}
+                        className="admin-color-chip"
+                        style={{ backgroundColor: c }}
+                        title={c}
+                        onClick={() => handleRemoveColor(setNewComparsa, newComparsa, i)}
+                      />
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <input
+                      type="color"
+                      value={colorInput}
+                      onChange={(e) => setColorInput(e.target.value)}
+                      style={{ width: 38, height: 34, padding: 2, cursor: "pointer" }}
+                    />
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => handleAddColor(setNewComparsa, newComparsa)}
+                    >
+                      Agregar color
+                    </button>
+                  </div>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={handleCreateComparsa}>
+                  Crear
+                </button>
+              </div>
+            )}
+
+            <table className="admin-table" style={{ marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Nombre</th>
+                  <th>Colores</th>
+                  <th style={{ width: 100 }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparsas.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.position}</td>
+                    <td>
+                      {editingComparsa?.id === c.id ? (
+                        <input
+                          type="text"
+                          value={editingComparsa.name}
+                          onChange={(e) => setEditingComparsa({ ...editingComparsa, name: e.target.value })}
+                          style={{ width: "100%", minWidth: 120 }}
+                        />
+                      ) : (
+                        c.name
+                      )}
+                    </td>
+                    <td>
+                      <div className="admin-colors">
+                        {(Array.isArray(c.colors) ? c.colors : []).map((color, i) => (
+                          <div
+                            key={i}
+                            className="admin-color-chip"
+                            style={{ backgroundColor: color }}
+                            title={color}
+                          />
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="admin-actions">
+                        {editingComparsa?.id === c.id ? (
+                          <>
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => handleUpdateComparsa(c.id)}
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => setEditingComparsa(null)}
+                            >
+                              Cancelar
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => setEditingComparsa({ ...c, id: c.id })}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => handleDeleteComparsa(c.id)}
+                            >
+                              Eliminar
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {comparsas.length === 0 && (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>
+                      No hay comparsas cargadas.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ---- Rubros ---- */}
+          <div className="admin-section" style={{ marginTop: 36 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2>Rubros</h2>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setShowAddRubro(!showAddRubro)}
+              >
+                {showAddRubro ? "Cancelar" : "+ Nuevo"}
+              </button>
+            </div>
+
+            {showAddRubro && (
+              <div className="admin-form">
+                <div className="admin-field" style={{ flex: 1 }}>
+                  <label>Nombre</label>
+                  <input
+                    type="text"
+                    value={newRubro.name}
+                    onChange={(e) => setNewRubro({ ...newRubro, name: e.target.value })}
+                    placeholder="Nombre del rubro"
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Nota mínima</label>
+                  <input
+                    type="number"
+                    value={newRubro.min_score}
+                    onChange={(e) => setNewRubro({ ...newRubro, min_score: Number(e.target.value) })}
+                    style={{ width: 70 }}
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Nota máxima</label>
+                  <input
+                    type="number"
+                    value={newRubro.max_score}
+                    onChange={(e) => setNewRubro({ ...newRubro, max_score: Number(e.target.value) })}
+                    style={{ width: 70 }}
+                  />
+                </div>
+                <div className="admin-field">
+                  <label>Comparsa</label>
+                  <select
+                    value={newRubro.comparsa_id ?? ""}
+                    onChange={(e) => setNewRubro({ ...newRubro, comparsa_id: Number(e.target.value) })}
+                  >
+                    <option value="" disabled>
+                      Seleccionar comparsa
+                    </option>
+                    {comparsas.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={handleCreateRubro}>
+                  Crear
+                </button>
+              </div>
+            )}
+
+            <table className="admin-table" style={{ marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Rango</th>
+                  <th>Comparsa</th>
+                  <th style={{ width: 100 }}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rubros.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      {editingRubro?.id === r.id ? (
+                        <input
+                          type="text"
+                          value={editingRubro.name}
+                          onChange={(e) => setEditingRubro({ ...editingRubro, name: e.target.value })}
+                          style={{ width: "100%", minWidth: 120 }}
+                        />
+                      ) : (
+                        r.name
+                      )}
+                    </td>
+                    <td>
+                      {editingRubro?.id === r.id ? (
+                        <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <input
+                            type="number"
+                            value={editingRubro.min_score}
+                            onChange={(e) => setEditingRubro({ ...editingRubro, min_score: Number(e.target.value) })}
+                            style={{ width: 50 }}
+                          />
+                          —
+                          <input
+                            type="number"
+                            value={editingRubro.max_score}
+                            onChange={(e) => setEditingRubro({ ...editingRubro, max_score: Number(e.target.value) })}
+                            style={{ width: 50 }}
+                          />
+                        </span>
+                      ) : (
+                        `${r.min_score} — ${r.max_score}`
+                      )}
+                    </td>
+                    <td>
+                      {editingRubro?.id === r.id ? (
+                        <select
+                          value={editingRubro.comparsa_id ?? ""}
+                          onChange={(e) => setEditingRubro({ ...editingRubro, comparsa_id: Number(e.target.value) })}
+                        >
+                          <option value="" disabled>
+                            Seleccionar comparsa
+                          </option>
+                          {comparsas.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        comparsas.find((c) => c.id === r.comparsa_id)?.name || "—"
+                      )}
+                    </td>
+                    <td>
+                      <div className="admin-actions">
+                        {editingRubro?.id === r.id ? (
+                          <>
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => handleUpdateRubro(r.id)}
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => setEditingRubro(null)}
+                            >
+                              Cancelar
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => setEditingRubro({ ...r, id: r.id })}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => handleDeleteRubro(r.id)}
+                            >
+                              Eliminar
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {rubros.length === 0 && (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>
+                      No hay rubros cargados.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ marginTop: 28 }}>
+            <button className="btn btn-ghost" onClick={() => signOut().then(() => (window.location.href = "/login"))}>
+              Cerrar sesión
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

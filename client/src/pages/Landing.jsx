@@ -9,23 +9,20 @@ export default function Landing() {
       <section className="landing-shell" aria-labelledby="landing-title">
         <div className="landing-copy">
           <p className="landing-eyebrow">CARNAVALES</p>
-          <h1 id="landing-title">Una entrada segura a Carnavales.</h1>
+          <h1 id="landing-title">Jurado oficial de Carnavales</h1>
           <p>
-            Gestiona tu cuenta con sesiones protegidas, verificación en dos pasos
-            y recuperación de contraseña.
+            Evaluá las comparsas, asigná notas en cada rubro y confirmá tu
+            planilla de votación de forma segura.
           </p>
         </div>
 
         <div className="landing-card">
-          <p className="landing-card-label">Área de usuario</p>
-          <h2>Comienza aquí</h2>
-          <p>Inicia sesión o crea una cuenta nueva para continuar.</p>
+          <p className="landing-card-label">Área de jurado</p>
+          <h2>Comenzá aquí</h2>
+          <p>Iniciá sesión para acceder al sistema de votación.</p>
           <div className="landing-actions">
             <Link className="button-link" to="/login" state={modalState}>
               Iniciar sesión
-            </Link>
-            <Link className="button-link secondary" to="/register" state={modalState}>
-              Crear cuenta
             </Link>
           </div>
         </div>

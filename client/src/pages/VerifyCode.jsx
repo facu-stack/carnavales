@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { authClient } from "../lib/auth-client";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 const COOLDOWN = 30;
 
 // Use globalThis to persist across HMR and StrictMode remounts
@@ -18,11 +19,11 @@ export function resetOtpSent() {
   globalThis[COOLDOWN_KEY] = 0;
 }
 
-function getSendErrorMessage(error) {
+function getServerError(error) {
   if (error?.status === 429 || error?.statusCode === 429) {
-    return "Demasiados intentos. Espera unos segundos antes de reenviar el código.";
+    return "Demasiados intentos. Espera un momento antes de volver a intentar.";
   }
-  return error?.message || "Error al enviar código";
+  return error;
 }
 
 export default function VerifyCode() {
@@ -34,6 +35,9 @@ export default function VerifyCode() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const email = location.state?.email;
+  const dni = location.state?.dni;
+
   useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setInterval(() => setCooldown((c) => c - 1), 1000);
@@ -41,47 +45,34 @@ export default function VerifyCode() {
   }, [cooldown]);
 
   useEffect(() => {
-    if (globalThis[OTP_KEY]) {
-      setCooldown(Math.max(0, globalThis[COOLDOWN_KEY]));
-      return;
-    }
+    if (!email) return;
 
     globalThis[OTP_KEY] = true;
-
-    const sendCodeOnMount = async () => {
-      setSending(true);
-      try {
-        const { error: sendError } = await authClient.twoFactor.sendOtp();
-        if (sendError) {
-          globalThis[OTP_KEY] = false;
-          setError(getSendErrorMessage(sendError));
-        } else {
-          globalThis[COOLDOWN_KEY] = COOLDOWN;
-          setCooldown(COOLDOWN);
-        }
-      } catch (err) {
-        globalThis[OTP_KEY] = false;
-        setError("Error al enviar código");
-      } finally {
-        setSending(false);
-      }
-    };
-    sendCodeOnMount();
-  }, []);
+    globalThis[COOLDOWN_KEY] = COOLDOWN;
+    setCooldown(COOLDOWN);
+  }, [email]);
 
   const handleSendCode = async () => {
+    if (!email || !dni) return;
     setSending(true);
     setError("");
     try {
-      const { error: sendError } = await authClient.twoFactor.sendOtp();
-      if (sendError) {
-        setError(getSendErrorMessage(sendError));
-      } else {
-        globalThis[COOLDOWN_KEY] = COOLDOWN;
-        setCooldown(COOLDOWN);
+      const res = await fetch(`${API_BASE}/api/login-pin/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email, dni }),
+      });
+
+      if (!res.ok) {
+        setError(getServerError({ status: res.status }));
+        return;
       }
+
+      globalThis[COOLDOWN_KEY] = COOLDOWN;
+      setCooldown(COOLDOWN);
     } catch (err) {
-      setError("Error al enviar código");
+      setError("Error al enviar el PIN");
     } finally {
       setSending(false);
     }
@@ -89,13 +80,14 @@ export default function VerifyCode() {
 
   const handleVerify = async (e) => {
     e.preventDefault();
+    if (!email) return;
     setError("");
     setLoading(true);
 
     try {
-      const { error: verifyError } = await authClient.twoFactor.verifyOtp({
-        code,
-        trustDevice: false,
+      const { data, error: verifyError } = await authClient.signIn.emailOtp({
+        email,
+        otp: code,
       });
 
       if (verifyError) {
@@ -110,8 +102,7 @@ export default function VerifyCode() {
         return;
       }
 
-      const { data: session, error: sessionError } = await authClient.getSession();
-      if (sessionError || !session) {
+      if (!data?.token) {
         setError("La sesión no pudo confirmarse. Intenta autenticarte nuevamente.");
         return;
       }
@@ -133,22 +124,37 @@ export default function VerifyCode() {
     navigate("/login", { state });
   };
 
+  if (!email) {
+    return (
+      <div className="container">
+        <h1>Verificar código</h1>
+        <p className="error" role="alert">
+          Accedé desde el login para recibir tu PIN.
+        </p>
+        <p style={{ marginTop: "1rem", textAlign: "center" }}>
+          <button
+            onClick={handleGoBack}
+            style={{ background: "none", border: "none", color: "var(--link)", cursor: "pointer", textDecoration: "underline" }}
+          >
+            Volver al login
+          </button>
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="container">
-      <h1>Verificar código</h1>
-      {sending ? (
-        <p>Enviando código a tu correo electrónico...</p>
-      ) : !error ? (
-        <p>Revisa tu correo. Si el código no llega, intenta reenviarlo.</p>
-      ) : null}
+      <h1>Verificar tu identidad</h1>
+      <p>Ingresá el PIN de 6 dígitos que enviamos a tu correo.</p>
 
       <button onClick={handleSendCode} disabled={sending || cooldown > 0} style={{ marginBottom: "1rem" }}>
-        {sending ? "Enviando..." : cooldown > 0 ? `Reenviar en ${cooldown}s` : "Reenviar código"}
+        {sending ? "Enviando..." : cooldown > 0 ? `Reenviar en ${cooldown}s` : "Reenviar PIN"}
       </button>
 
       <form onSubmit={handleVerify}>
         <div>
-          <label>Código de 6 dígitos</label>
+          <label>PIN de 6 dígitos</label>
           <input
             type="text"
             value={code}
@@ -160,11 +166,14 @@ export default function VerifyCode() {
         </div>
         {error && <div className="error">{error}</div>}
         <button type="submit" disabled={loading || code.length !== 6}>
-          {loading ? "Verificando..." : "Verificar código"}
+          {loading ? "Verificando..." : "Verificar PIN"}
         </button>
       </form>
       <p style={{ marginTop: "1rem", textAlign: "center" }}>
-        <button onClick={handleGoBack} style={{ background: "none", border: "none", color: "#0066cc", cursor: "pointer", textDecoration: "underline" }}>
+        <button
+          onClick={handleGoBack}
+          style={{ background: "none", border: "none", color: "var(--link)", cursor: "pointer", textDecoration: "underline" }}
+        >
           Volver al login
         </button>
       </p>

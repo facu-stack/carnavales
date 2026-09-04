@@ -27,9 +27,5 @@ export default function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
-  if (session.user?.twoFactorEnabled !== true) {
-    return <Navigate to="/login" replace state={{ twoFactorRequired: true }} />;
-  }
-
   return children;
 }

@@ -243,17 +243,17 @@ describe("Authentication", () => {
   });
 
   describe("GET /api/me", () => {
-    it("should block a direct sign-up session before 2FA enrollment", async () => {
+    it("should allow an authenticated sign-up session without 2FA enrollment", async () => {
       const email = generateEmail();
       const registered = await register(email, TEST_PASSWORD);
 
       const res = await getMe(registered.cookies);
 
-      assert.strictEqual(res.status, 403);
-      assert.strictEqual(res.body.code, "TWO_FACTOR_REQUIRED");
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.authenticated, true);
     });
 
-    it("should reject the enrollment session until its OTP is verified", async () => {
+    it("should allow the enrollment session until its OTP is verified", async () => {
       const email = generateEmail();
       const registered = await register(email, TEST_PASSWORD);
       const enableResponse = await request(
@@ -266,8 +266,8 @@ describe("Authentication", () => {
 
       const res = await getMe(enableResponse.cookies);
 
-      assert.strictEqual(res.status, 403);
-      assert.strictEqual(res.body.code, "TWO_FACTOR_REQUIRED");
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.authenticated, true);
     });
 
     it("should revoke other pre-enrollment sessions after OTP verification", async () => {

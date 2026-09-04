@@ -1,20 +1,18 @@
 import express from "express";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth } from "../auth/auth.js";
-import {
-  requireAuth,
-  requireTwoFactor,
-} from "../middleware/auth.middleware.js";
+import { requireAuth } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-router.get("/me", requireAuth, requireTwoFactor, async (req, res) => {
+router.get("/me", requireAuth, async (req, res) => {
   return res.json({
     authenticated: true,
     user: {
       id: req.user.id,
       email: req.user.email,
       name: req.user.name || "",
+      isAdmin: req.user.isAdmin === true,
     },
   });
 });

@@ -38,6 +38,18 @@ preparada para autorización basada en roles.
 - PostgreSQL 14+
 - pg Pool (sin ORM)
 - Better Auth gestiona sus propias tablas
+- Tablas de negocio `comparsas`, `rubros` y `calificacion` (gestionadas por `npm run migrate-tables`)
+
+## Modelo de datos de votación
+
+```
+user (text PK: id) 1:N account (text PK: id) 1:N calificacion N:1 rubros N:1 comparsas
+```
+
+- `comparsas` 1:N `rubros` (cada rubro pertenece a una comparsa vía `rubros.comparsa_id`)
+- `rubros` 1:N `calificacion` (cada calificación pertenece a un rubro vía `calificacion.rubro_id`)
+- `account` 1:N `calificacion` (cada calificación registra el jurado vía `calificacion.account_id`)
+- `calificacion.puntaje` con CHECK (1..10) y UNIQUE (account_id, rubro_id, noche)
 
 ## Authentication
 
@@ -47,6 +59,7 @@ preparada para autorización basada en roles.
 - 2FA/OTP via plugin twoFactor
 - Sesiones server-side
 - El alta de 2FA permanece pendiente hasta verificar un OTP; la verificación rota la sesión
+- Flag `isAdmin` en `additionalFields` del usuario (acceso simple al panel `/admin`)
 
 En desarrollo, el adaptador `console` imprime el código OTP. En producción,
 la aplicación exige el adaptador `smtp`, nunca registra el código y almacena
@@ -121,6 +134,24 @@ Utilizar:
 
 La autenticación debe utilizar Better Auth como componente principal.
 
+## Login con Email + DNI + PIN (flujo actual de la UI)
+
+- El login de la aplicación pide **email + DNI** y envía un **PIN de 6 dígitos** por correo.
+- Se usa el plugin `emailOTP` de Better Auth con `disableSignUp: true` y
+  `storeOTP: "encrypted"` (el OTP se guarda cifrado).
+- El campo `dni` es un `additionalFields` del usuario, **solo para pruebas**
+  (no hay backfill, carga ni administración funcional de DNI).
+- El envío del PIN se controla desde `POST /api/login-pin/request` (`api/src/routes/login-pin.routes.js`):
+  valida que el usuario exista y que su `dni` coincida (respuesta genérica e
+  idéntica si no existen o no coinciden, sin enumeración) y recién entonces
+  emite el OTP de forma server-side vía `auth.api.sendVerificationOTP`.
+- Los endpoints HTTP del plugin `email-otp` (`/api/auth/email-otp/*`, etc.)
+  están **bloqueados** con 404 en `server.js` para impedir enviar/verificar OTP
+  por fuera del flujo controlado; solo se expone `/api/auth/sign-in/email-otp`
+  para que el cliente verifique el PIN y reciba la cookie de sesión.
+- El email+password de Better Auth se mantiene en backend únicamente para
+  compatibilidad con los tests existentes; **no se usa en la UI**.
+
 No implementar manualmente:
 
 - generación de sesiones
@@ -168,11 +199,15 @@ api/
 │   ├── middleware/
 │   │   └── auth.middleware.js  # requireAuth y requireTwoFactor
 │   ├── routes/
-│   │   └── protected.routes.js # Rutas /api/me, /api/enable-2fa, /api/health
+│   │   ├── protected.routes.js # Rutas /api/me, /api/enable-2fa, /api/health
+│   │   └── admin.routes.js     # CRUD /api/admin/comparsas y /api/admin/rubros
 │   ├── services/
 │   │   ├── email.service.js    # Adaptadores console y SMTP seguros
 │   │   └── email-templates.js  # Plantillas HTML profesionales (OTP, Reset)
 │   └── server.js               # Express + Better Auth
+├── scripts/
+│   ├── migrate-tables.js       # Crea/llena comparsas, rubros y calificacion
+│   └── promote-admin.js        # Habilita isAdmin a un usuario por email
 ├── .env
 ├── .env.example
 └── package.json
@@ -193,7 +228,8 @@ El backend debe mantener separación entre:
 client/
 ├── src/
 │   ├── lib/
-│   │   └── auth-client.js     # Cliente Better Auth
+│   │   ├── auth-client.js     # Cliente Better Auth
+│   │   └── voting-storage.js  # Persistencia de la sesión de votación (sessionStorage)
 │   ├── components/
 │   │   ├── AuthLink.jsx         # Enlaces que conservan el fondo del modal
 │   │   ├── Modal.jsx             # Modal accesible controlado por rutas
@@ -205,7 +241,8 @@ client/
 │   │   ├── VerifyCode.jsx
 │   │   ├── ForgotPassword.jsx
 │   │   ├── ResetPassword.jsx
-│   │   └── Home.jsx
+│   │   ├── Home.jsx
+│   │   └── Admin.jsx
 │   ├── router/
 │   │   └── Router.jsx
 │   ├── App.jsx
@@ -228,6 +265,7 @@ siendo válido y muestra el modal a pantalla completa.
 - PostgreSQL 14+
 - pg Pool (sin ORM)
 - Better Auth crea/modifica sus tablas mediante `npm run migrate` en `api`
+- Tablas de negocio `comparsas`, `rubros` y `calificacion` mediante `npm run migrate-tables` en `api`
 - Parameterized queries (`$1, $2...`) siempre
 - Constraints, foreign keys, índices para integridad
 - No almacenar passwords en texto plano
@@ -255,14 +293,32 @@ siendo válido y muestra el modal a pantalla completa.
 
 | Método | Endpoint | Auth | Descripción |
 |--------|----------|------|-------------|
-| GET | /api/me | ✓ + 2FA | Info del usuario |
+| GET | /api/me | ✓ | Info del usuario (incluye `isAdmin`) |
 | POST | /api/enable-2fa | ✓ | Habilitar 2FA |
+| POST | /api/login-pin/request | ✗ | Enviar PIN de acceso (email+DNI) |
 | GET | /api/health | ✗ | Health check |
+
+## Endpoints de administración (requieren `isAdmin`)
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | /api/admin/comparsas | Listar comparsas (solo autenticado) |
+| POST | /api/admin/comparsas | Crear comparsa |
+| PUT | /api/admin/comparsas/:id | Editar comparsa |
+| DELETE | /api/admin/comparsas/:id | Eliminar comparsa |
+| GET | /api/admin/rubros | Listar rubros (solo autenticado) |
+| POST | /api/admin/rubros | Crear rubro |
+| PUT | /api/admin/rubros/:id | Editar rubro |
+| DELETE | /api/admin/rubros/:id | Eliminar rubro |
+
+La lectura (GET) requiere `requireAuth`; las mutaciones (POST/PUT/DELETE)
+requieren además `requireAdmin` (fail-secure: 401 sin sesión, 403 sin `isAdmin`).
 
 ## Rate limiting
 
 - 10 requests/15min en login y registro
 - 5 requests/15min en recuperación de contraseña
+- 5 requests/15min en `/api/login-pin/request`
 - Rate limiting por IP
 
 ---
@@ -284,7 +340,11 @@ siendo válido y muestra el modal a pantalla completa.
 ## Autorización
 
 - `requireAuth` protege los endpoints personalizados actuales
-- `requireTwoFactor` protege los datos autenticados hasta verificar el segundo factor
+- El login por PIN (email+DNI) restaura directamente como segundo factor autenticado,
+  por lo que `/api/me` depende solo de `requireAuth`
+- `requireTwoFactor` se conserva para el flujo legacy de onboarding 2FA
+- El flag `isAdmin` habilita el acceso simple al panel `/admin` y a los
+  endpoints mutables de `/api/admin/*`
 - RBAC, permisos granulares y ownership todavía no están implementados
 - Frontend solo UX, no seguridad
 
@@ -366,6 +426,8 @@ Usar estas Skills al desarrollar, modificar o revisar código.
 - [ ] Sesiones expiradas por timeout
 - [x] Logout
 - [x] 2FA/OTP backend: habilitación, envío, verificación y sesión final
+- [x] Login PIN (email+DNI): envío, verificación, sesión y bloqueo HTTP del plugin `email-otp`
+- [x] Admin: autorización de `/api/admin/*` (401 sin sesión, 403 sin `isAdmin`)
 
 ## Framework
 
@@ -389,7 +451,8 @@ Usar estas Skills al desarrollar, modificar o revisar código.
 # Backend
 cd api
 npm install
-npm run migrate
+npm run migrate          # tablas de Better Auth (agrega isAdmin en "user")
+npm run migrate-tables   # tablas de negocio comparsas, rubros y calificacion
 npm run dev
 
 # Frontend

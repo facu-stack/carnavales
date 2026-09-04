@@ -1,8 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Login from "../pages/Login";
-import Register from "../pages/Register";
 import VerifyCode from "../pages/VerifyCode";
 import Home from "../pages/Home";
+import Admin from "../pages/Admin";
 import ProtectedRoute from "../components/ProtectedRoute";
 import ForgotPassword from "../pages/ForgotPassword";
 import ResetPassword from "../pages/ResetPassword";
@@ -30,14 +30,6 @@ function AppRoutes() {
           element={
             <AuthModal label="Iniciar sesión">
               <Login />
-            </AuthModal>
-          }
-        />
-        <Route
-          path="/register"
-          element={
-            <AuthModal label="Crear cuenta">
-              <Register />
             </AuthModal>
           }
         />
@@ -73,6 +65,14 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <Admin />
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
@@ -83,14 +83,6 @@ function AppRoutes() {
             element={
               <AuthModal label="Iniciar sesión">
                 <Login />
-              </AuthModal>
-            }
-          />
-          <Route
-            path="/register"
-            element={
-              <AuthModal label="Crear cuenta">
-                <Register />
               </AuthModal>
             }
           />
