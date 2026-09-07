@@ -29,10 +29,10 @@ async function registerAdmin() {
   return { email, cookies: loginRes.cookies };
 }
 
-async function getRubroIdsByComparsa(comparsaId) {
+async function getRubrosIds(limit = 2) {
   const { rows } = await pool.query(
-    `SELECT id FROM rubros WHERE comparsa_id = $1 ORDER BY id LIMIT 2`,
-    [comparsaId]
+    `SELECT id FROM rubros ORDER BY id LIMIT $1`,
+    [limit]
   );
   return rows.map((r) => r.id);
 }
@@ -107,34 +107,46 @@ describe("Admin jurados management", () => {
     assert.equal(delAll.status, 403);
   });
 
-  it("should create, list and sign-in a jurado with the delivered PIN", async () => {
+  it("should create, list and sign-in a jurado that requests its PIN", async () => {
     const admin = await registerAdmin();
-    const rubrosIds = await getRubroIdsByComparsa(1);
+    const rubrosIds = await getRubrosIds();
 
     const juradoEmail = generateEmail();
     let created = null;
-    const otp = await captureOtpDuring(async () => {
+    const otpSentOnCreate = await captureOtpDuring(async () => {
       const res = await request("POST", "/api/admin/jurados", {
         name: "Jurado Uno",
         email: juradoEmail,
         dni: "40111111",
-        asignaciones: [{ comparsa_id: 1, rubros_ids: rubrosIds }],
+        rubros_ids: rubrosIds,
       }, admin.cookies);
       assert.equal(res.status, 201);
       created = res.body;
     });
     createdUserIds.push(created.id);
 
-    assert.match(otp, /^\d{6}$/);
+    assert.strictEqual(otpSentOnCreate, "");
     assert.equal(created.emailSent, true);
     assert.equal(created.name, "Jurado Uno");
     assert.equal(created.dni, "40111111");
-    assert.equal(created.asignaciones.length, 1);
-    assert.equal(created.asignaciones[0].rubros.length, rubrosIds.length);
+    assert.equal(created.asignaciones.length, rubrosIds.length);
+    assert.deepEqual(
+      created.asignaciones.map((a) => a.rubro_id).sort((a, b) => a - b),
+      [...rubrosIds].sort((a, b) => a - b)
+    );
 
     const list = await request("GET", "/api/admin/jurados", null, admin.cookies);
     assert.equal(list.status, 200);
     assert.ok(list.body.some((j) => j.id === created.id && j.dni === "40111111"));
+
+    const otp = await captureOtpDuring(async () => {
+      const pinRes = await request("POST", "/api/login-pin/request", {
+        email: juradoEmail,
+        dni: "40111111",
+      });
+      assert.equal(pinRes.status, 200);
+    });
+    assert.match(otp, /^\d{6}$/);
 
     const signIn = await request("POST", "/api/auth/sign-in/email-otp", {
       email: juradoEmail,
@@ -149,12 +161,12 @@ describe("Admin jurados management", () => {
 
     const misComparsas = await request("GET", "/api/jurado/mis-comparsas", null, signIn.cookies);
     assert.equal(misComparsas.status, 200);
-    assert.equal(misComparsas.body.length, 1);
+    assert.ok(misComparsas.body.length >= 1);
     assert.equal(misComparsas.body[0].rubros_count, rubrosIds.length);
 
     const misRubros = await request("GET", "/api/jurado/mis-rubros", null, signIn.cookies);
     assert.equal(misRubros.status, 200);
-    assert.deepEqual(misRubros.body.map((r) => r.id).sort(), [...rubrosIds].sort());
+    assert.deepEqual(misRubros.body.map((r) => r.id).sort((a, b) => a - b), [...rubrosIds].sort((a, b) => a - b));
   });
 
   it("should reject a duplicate DNI", async () => {
@@ -213,20 +225,20 @@ describe("Admin jurados management", () => {
     const badAsignacion = await request("POST", "/api/admin/jurados", {
       email: generateEmail(),
       dni: "40555555",
-      asignaciones: [{ comparsa_id: 1, rubros_ids: [999999] }],
+      rubros_ids: [999999],
     }, admin.cookies);
     assert.equal(badAsignacion.status, 400);
   });
 
   it("should update a jurado and replace assignments", async () => {
     const admin = await registerAdmin();
-    const rubrosComp1 = await getRubroIdsByComparsa(1);
+    const rubrosComp1 = await getRubrosIds();
 
     const created = await request("POST", "/api/admin/jurados", {
       name: "Antes",
       email: generateEmail(),
       dni: "40666666",
-      asignaciones: [{ comparsa_id: 1, rubros_ids: rubrosComp1 }],
+      rubros_ids: rubrosComp1,
     }, admin.cookies);
     assert.equal(created.status, 201);
     createdUserIds.push(created.body.id);
@@ -234,7 +246,7 @@ describe("Admin jurados management", () => {
     const updated = await request("PUT", `/api/admin/jurados/${created.body.id}`, {
       name: "Despues",
       dni: "40777777",
-      asignaciones: [],
+      rubros_ids: [],
     }, admin.cookies);
     assert.equal(updated.status, 200);
     assert.equal(updated.body.name, "Despues");

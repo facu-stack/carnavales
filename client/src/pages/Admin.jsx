@@ -412,22 +412,6 @@ export default function Admin() {
                     style={{ width: 70 }}
                   />
                 </div>
-                <div className="admin-field">
-                  <label>Comparsa</label>
-                  <select
-                    value={newRubro.comparsa_id ?? ""}
-                    onChange={(e) => setNewRubro({ ...newRubro, comparsa_id: Number(e.target.value) })}
-                  >
-                    <option value="" disabled>
-                      Seleccionar comparsa
-                    </option>
-                    {comparsas.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
                 <button className="btn btn-primary btn-sm" onClick={handleCreateRubro}>
                   Crear
                 </button>
@@ -439,7 +423,6 @@ export default function Admin() {
                 <tr>
                   <th>Nombre</th>
                   <th>Rango</th>
-                  <th>Comparsa</th>
                   <th style={{ width: 100 }}>Acciones</th>
                 </tr>
               </thead>
@@ -477,25 +460,6 @@ export default function Admin() {
                         </span>
                       ) : (
                         `${r.min_score} — ${r.max_score}`
-                      )}
-                    </td>
-                    <td>
-                      {editingRubro?.id === r.id ? (
-                        <select
-                          value={editingRubro.comparsa_id ?? ""}
-                          onChange={(e) => setEditingRubro({ ...editingRubro, comparsa_id: Number(e.target.value) })}
-                        >
-                          <option value="" disabled>
-                            Seleccionar comparsa
-                          </option>
-                          {comparsas.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        comparsas.find((c) => c.id === r.comparsa_id)?.name || "—"
                       )}
                     </td>
                     <td>
@@ -537,7 +501,7 @@ export default function Admin() {
                 ))}
                 {rubros.length === 0 && (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>
+                    <td colSpan={3} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>
                       No hay rubros cargados.
                     </td>
                   </tr>

@@ -43,16 +43,18 @@ preparada para autorización basada en roles.
 ## Modelo de datos de votación
 
 ```
-user (text PK: id) 1:N account (text PK: id) 1:N calificacion N:1 rubros N:1 comparsas
-user (text PK: id) 1:N jurado_rubros N:1 rubros (asignación de rubros por jurado)
+user (text PK: id) 1:N account (text PK: id) 1:N calificacion N:1 rubros
+comparsas 1:N calificacion (cada calificación pertenece a una comparsa vía `calificacion.comparsa_id`)
+user (text PK: id) 1:N jurado_rubros N:1 rubros (asignación de rubros globales por jurado)
 ```
 
-- `comparsas` 1:N `rubros` (cada rubro pertenece a una comparsa vía `rubros.comparsa_id`)
+- `rubros` es una lista **global** sin `comparsa_id`: los rubros elegidos por el admin se aplican a **todas** las comparsas
 - `rubros` 1:N `calificacion` (cada calificación pertenece a un rubro vía `calificacion.rubro_id`)
+- `comparsas` 1:N `calificacion` (cada calificación pertenece a una comparsa vía `calificacion.comparsa_id`)
 - `account` 1:N `calificacion` (cada calificación registra el jurado vía `calificacion.account_id`)
-- `user` 1:N `jurado_rubros` (asignaciones de rubros/comparsas por jurado; cada fila une
-  `user_id`, `comparsa_id` y `rubro_id`, con `UNIQUE (user_id, rubro_id)` y FKs ON DELETE CASCADE)
-- `calificacion.puntaje` con CHECK (1..10) y UNIQUE (account_id, rubro_id, noche)
+- `user` 1:N `jurado_rubros` (asignación de rubros globales por jurado; cada fila une
+  `user_id` y `rubro_id`, con `UNIQUE (user_id, rubro_id)` y FKs ON DELETE CASCADE)
+- `calificacion.puntaje` con CHECK (1..10) y UNIQUE (account_id, comparsa_id, rubro_id, noche)
 
 ## Authentication
 
@@ -149,11 +151,11 @@ La autenticación debe utilizar Better Auth como componente principal.
   idéntica si no existen o no coinciden, sin enumeración) y recién entonces
   emite el OTP de forma server-side vía `auth.api.sendVerificationOTP`.
 - **Alta de jurados por el admin** (`POST /api/admin/jurados`): se inserta el usuario en la
-  tabla `user` de Better Auth (`emailVerified=false`, `dni`, `isAdmin=false`) y, en la misma
-  operación, se emite un PIN inicial vía `auth.api.createVerificationOTP` y se envía un correo
-  de bienvenida con el PIN (`juradoBienvenidaEmail`). El jurado luego hace login con
-  email + DNI + el PIN solicitado en `/api/login-pin/request`; Better Auth lo marca verificado
-  en el primer sign-in exitoso (`sign-in/email-otp`).
+  tabla `user` de Better Auth (`emailVerified=false`, `dni`, `isAdmin=false`) y se envía un
+  correo de bienvenida **sin PIN** (`juradoAccesoEmail`) con un enlace a la pantalla de
+  inicio. El jurado luego solicita su PIN en `/api/login-pin/request` (email + DNI) y hace
+  login con ese PIN; Better Auth lo marca verificado en el primer sign-in exitoso
+  (`sign-in/email-otp`).
 - Los endpoints HTTP del plugin `email-otp` (`/api/auth/email-otp/*`, etc.)
   están **bloqueados** con 404 en `server.js` para impedir enviar/verificar OTP
   por fuera del flujo controlado; solo se expone `/api/auth/sign-in/email-otp`
@@ -333,12 +335,12 @@ siendo válido y muestra el modal a pantalla completa.
 | Método | Endpoint | Auth | Descripción |
 |--------|----------|------|-------------|
 | GET | /api/admin/jurados | ✓ + admin | Listar jurados (incluye DNI y asignaciones) |
-| POST | /api/admin/jurados | ✓ + admin | Crear jurado (email+DNI) y enviar PIN de bienvenida |
+| POST | /api/admin/jurados | ✓ + admin | Crear jurado (email+DNI) y enviar correo de bienvenida con enlace de acceso |
 | PUT | /api/admin/jurados/:userId | ✓ + admin | Editar jurado y sus asignaciones |
 | DELETE | /api/admin/jurados/:userId | ✓ + admin | Eliminar un jurado (nunca un admin) |
 | DELETE | /api/admin/jurados | ✓ + admin | Eliminar todos los jurados (usuarios `isAdmin=false`); los admins nunca se borran |
-| GET | /api/jurado/mis-rubros | ✓ | Rubros (id, nombre, rango, comparsa) asignados al jurado logueado |
-| GET | /api/jurado/mis-comparsas | ✓ | Comparsas para las que el jurado tiene al menos un rubro asignado |
+| GET | /api/jurado/mis-rubros | ✓ | Rubros (id, nombre, rango) asignados al jurado logueado; se aplican a todas las comparsas |
+| GET | /api/jurado/mis-comparsas | ✓ | Todas las comparsas cuando el jurado tiene al menos un rubro asignado |
 
 El `dni` es un campo PII: el listado `GET /api/admin/jurados` exige `requireAdmin`
 (fail-secure), y los logs del backend nunca imprimen el DNI ni `req.body` completo.
@@ -460,7 +462,7 @@ Usar estas Skills al desarrollar, modificar o revisar código.
 - [x] 2FA/OTP backend: habilitación, envío, verificación y sesión final
 - [x] Login PIN (email+DNI): envío, verificación, sesión y bloqueo HTTP del plugin `email-otp`
 - [x] Admin: autorización de `/api/admin/*` (401 sin sesión, 403 sin `isAdmin`)
-- [x] Jurados: CRUD `/api/admin/jurados`, PIN de bienvenida, asignaciones, DNI/email duplicados, borrado masivo conservando admins
+- [x] Jurados: CRUD `/api/admin/jurados`, correo de bienvenida sin PIN, asignaciones, DNI/email duplicados, borrado masivo conservando admins
 
 ## Framework
 

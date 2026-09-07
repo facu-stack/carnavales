@@ -19,13 +19,13 @@ async function migrate() {
       );
     `);
 
+    // Rubros globales: la lista se aplica a TODAS las comparsas.
     await client.query(`
       CREATE TABLE IF NOT EXISTS rubros (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         min_score INTEGER NOT NULL DEFAULT 5,
         max_score INTEGER NOT NULL DEFAULT 10,
-        comparsa_id INTEGER NOT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
@@ -34,12 +34,13 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS calificacion (
         id SERIAL PRIMARY KEY,
         account_id TEXT NOT NULL,
+        comparsa_id INTEGER NOT NULL,
         rubro_id INTEGER NOT NULL,
         noche INTEGER NOT NULL DEFAULT 1,
         puntaje INTEGER NOT NULL CHECK (puntaje >= 1 AND puntaje <= 10),
         created_at TIMESTAMP DEFAULT NOW(),
-        CONSTRAINT calificacion_account_rubro_noche_key
-          UNIQUE (account_id, rubro_id, noche)
+        CONSTRAINT calificacion_account_comparsa_rubro_noche_key
+          UNIQUE (account_id, comparsa_id, rubro_id, noche)
       );
     `);
 
@@ -47,7 +48,6 @@ async function migrate() {
       CREATE TABLE IF NOT EXISTS jurado_rubros (
         id SERIAL PRIMARY KEY,
         user_id TEXT NOT NULL,
-        comparsa_id INTEGER NOT NULL,
         rubro_id INTEGER NOT NULL,
         created_at TIMESTAMP DEFAULT NOW(),
         CONSTRAINT jurado_rubros_user_rubro_key
@@ -55,45 +55,79 @@ async function migrate() {
       );
     `);
 
-    // Ensure rubros.comparsa_id references comparsas(id)
-    await ensureForeignKey(client, "rubros", "rubros_comparsa_id_fkey", {
-      column: "comparsa_id",
-      references: "comparsas(id)",
-    });
+    // ---- Migración de calificacion (legacy sin comparsa_id) ----
+    await dropConstraintIfExists(client, "calificacion", "calificacion_account_rubro_noche_key");
+    await addColumnIfMissing(client, "calificacion", "comparsa_id", "INTEGER");
+    if (await columnExists(client, "rubros", "comparsa_id")) {
+      await client.query(`
+        UPDATE calificacion c
+        SET comparsa_id = r.comparsa_id
+        FROM rubros r
+        WHERE r.id = c.rubro_id AND c.comparsa_id IS NULL
+      `);
+    }
+    await client.query("ALTER TABLE calificacion ALTER COLUMN comparsa_id SET NOT NULL");
 
-    // Ensure calificacion foreign keys
-    await ensureForeignKey(client, "calificacion", "calificacion_account_id_fkey", {
-      column: "account_id",
-      references: "account(id)",
-    });
-    await ensureForeignKey(client, "calificacion", "calificacion_rubro_id_fkey", {
-      column: "rubro_id",
-      references: "rubros(id)",
-    });
+    // ---- Migración de jurado_rubros (legacy) ----
+    await dropConstraintIfExists(client, "jurado_rubros", "jurado_rubros_user_rubro_key");
 
-    // Ensure calificacion indexes
-    await ensureIndex(client, "idx_calificacion_account_id", "calificacion", "account_id");
-    await ensureIndex(client, "idx_calificacion_rubro_id", "calificacion", "rubro_id");
-    await ensureIndex(client, "idx_calificacion_noche", "calificacion", "noche");
+    // ---- Migración de rubros (legacy por comparsa -> global) ----
+    if (await columnExists(client, "rubros", "comparsa_id")) {
+      await dropConstraintIfExists(client, "rubros", "rubros_comparsa_id_fkey");
+      await migrateRubrosToGlobal(client);
+      await client.query("ALTER TABLE rubros DROP COLUMN IF EXISTS comparsa_id");
+    }
+    await ensureUnique(client, "rubros", "rubros_name_key", "name");
 
-    // Ensure jurado_rubros foreign keys
+    // ---- Post-procesamiento jurado_rubros ----
+    await client.query("ALTER TABLE jurado_rubros DROP COLUMN IF EXISTS comparsa_id");
+    await client.query(`
+      DELETE FROM jurado_rubros
+      WHERE id NOT IN (SELECT MIN(id) FROM jurado_rubros GROUP BY user_id, rubro_id)
+    `);
     await ensureForeignKey(client, "jurado_rubros", "jurado_rubros_user_id_fkey", {
       column: "user_id",
       references: '"user"(id)',
-    });
-    await ensureForeignKey(client, "jurado_rubros", "jurado_rubros_comparsa_id_fkey", {
-      column: "comparsa_id",
-      references: "comparsas(id)",
     });
     await ensureForeignKey(client, "jurado_rubros", "jurado_rubros_rubro_id_fkey", {
       column: "rubro_id",
       references: "rubros(id)",
     });
-
-    // Ensure jurado_rubros indexes
+    await ensureUnique(client, "jurado_rubros", "jurado_rubros_user_rubro_key", "user_id, rubro_id");
     await ensureIndex(client, "idx_jurado_rubros_user_id", "jurado_rubros", "user_id");
-    await ensureIndex(client, "idx_jurado_rubros_comparsa_id", "jurado_rubros", "comparsa_id");
     await ensureIndex(client, "idx_jurado_rubros_rubro_id", "jurado_rubros", "rubro_id");
+
+    // ---- Post-procesamiento calificacion ----
+    await client.query(`
+      DELETE FROM calificacion
+      WHERE id NOT IN (
+        SELECT MIN(id)
+        FROM calificacion
+        GROUP BY account_id, comparsa_id, rubro_id, noche
+      )
+    `);
+    await ensureForeignKey(client, "calificacion", "calificacion_account_id_fkey", {
+      column: "account_id",
+      references: "account(id)",
+    });
+    await ensureForeignKey(client, "calificacion", "calificacion_comparsa_id_fkey", {
+      column: "comparsa_id",
+      references: "comparsas(id)",
+    });
+    await ensureForeignKey(client, "calificacion", "calificacion_rubro_id_fkey", {
+      column: "rubro_id",
+      references: "rubros(id)",
+    });
+    await ensureUnique(
+      client,
+      "calificacion",
+      "calificacion_account_comparsa_rubro_noche_key",
+      "account_id, comparsa_id, rubro_id, noche"
+    );
+    await ensureIndex(client, "idx_calificacion_account_id", "calificacion", "account_id");
+    await ensureIndex(client, "idx_calificacion_comparsa_id", "calificacion", "comparsa_id");
+    await ensureIndex(client, "idx_calificacion_rubro_id", "calificacion", "rubro_id");
+    await ensureIndex(client, "idx_calificacion_noche", "calificacion", "noche");
 
     await seedComparsas(client);
     await seedRubros(client);
@@ -106,6 +140,35 @@ async function migrate() {
     client.release();
     await pool.end();
   }
+}
+
+// Colapsa los rubros legacy (uno por comparsa) en una lista global única:
+// conserva el rubro de menor id por nombre y remapea las referencias.
+async function migrateRubrosToGlobal(client) {
+  await client.query(`
+    WITH map AS (
+      SELECT id, MIN(id) OVER (PARTITION BY name) AS keep_id FROM rubros
+    )
+    UPDATE jurado_rubros jr
+    SET rubro_id = map.keep_id
+    FROM map
+    WHERE jr.rubro_id = map.id AND map.keep_id <> map.id
+  `);
+
+  await client.query(`
+    WITH map AS (
+      SELECT id, MIN(id) OVER (PARTITION BY name) AS keep_id FROM rubros
+    )
+    UPDATE calificacion c
+    SET rubro_id = map.keep_id
+    FROM map
+    WHERE c.rubro_id = map.id AND map.keep_id <> map.id
+  `);
+
+  await client.query(`
+    DELETE FROM rubros
+    WHERE id NOT IN (SELECT MIN(id) FROM rubros GROUP BY name)
+  `);
 }
 
 async function seedComparsas(client) {
@@ -152,17 +215,45 @@ async function seedRubros(client) {
     "Batucada",
   ];
 
-  const { rows: comparsas } = await client.query("SELECT id FROM comparsas ORDER BY id");
-
-  for (const comparsa of comparsas) {
-    for (const name of rubroNames) {
-      await client.query(
-        "INSERT INTO rubros (name, min_score, max_score, comparsa_id) VALUES ($1, 5, 10, $2)",
-        [name, comparsa.id]
-      );
-    }
+  for (const name of rubroNames) {
+    await client.query(
+      "INSERT INTO rubros (name, min_score, max_score) VALUES ($1, 5, 10)",
+      [name]
+    );
   }
-  console.log("Seeded rubros per comparsa.");
+  console.log("Seeded global rubros.");
+}
+
+async function columnExists(client, table, column) {
+  const { rows } = await client.query(
+    `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+    [table, column]
+  );
+  return rows.length > 0;
+}
+
+async function addColumnIfMissing(client, table, column, definition) {
+  if (!(await columnExists(client, table, column))) {
+    await client.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    console.log(`Added column ${table}.${column}.`);
+  }
+}
+
+async function dropConstraintIfExists(client, table, constraint) {
+  await client.query(`ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${constraint}`);
+}
+
+async function ensureUnique(client, table, constraint, columns) {
+  const { rows } = await client.query(
+    `SELECT 1 FROM pg_constraint WHERE conname = $1 AND conrelid = $2::regclass`,
+    [constraint, table]
+  );
+  if (rows.length === 0) {
+    await client.query(
+      `ALTER TABLE ${table} ADD CONSTRAINT ${constraint} UNIQUE (${columns})`
+    );
+    console.log(`Added unique constraint ${constraint}.`);
+  }
 }
 
 async function ensureForeignKey(client, table, constraint, { column, references }) {

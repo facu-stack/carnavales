@@ -47,9 +47,8 @@ export default function Home() {
           apiFetch("/api/jurado/mis-rubros"),
         ]);
         if (cancelled) return;
-        const grouped = assignedRubros.reduce((acc, rubro) => {
-          if (!acc[rubro.comparsa_id]) acc[rubro.comparsa_id] = [];
-          acc[rubro.comparsa_id].push(rubro);
+        const grouped = assignedComparsas.reduce((acc, comparsa) => {
+          acc[comparsa.id] = assignedRubros;
           return acc;
         }, {});
         setComparsas(assignedComparsas);

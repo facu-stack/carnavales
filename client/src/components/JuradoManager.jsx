@@ -1,14 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
-function groupAsignacionesByComparsa(asignaciones = []) {
-  const grouped = {};
-  for (const item of asignaciones) {
-    grouped[item.comparsa_id] = item.rubros.map((r) => r.rubro_id);
-  }
-  return grouped;
-}
-
-export default function JuradoManager({ apiFetch, comparsas, rubros }) {
+export default function JuradoManager({ apiFetch, rubros }) {
   const [jurados, setJurados] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -16,7 +8,7 @@ export default function JuradoManager({ apiFetch, comparsas, rubros }) {
   const [showForm, setShowForm] = useState(false);
   const [editingJurado, setEditingJurado] = useState(null);
   const [form, setForm] = useState({ name: "", email: "", dni: "" });
-  const [formAsignaciones, setFormAsignaciones] = useState({});
+  const [formRubros, setFormRubros] = useState([]);
 
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [actionError, setActionError] = useState(null);
@@ -44,7 +36,7 @@ export default function JuradoManager({ apiFetch, comparsas, rubros }) {
 
   const resetForm = () => {
     setForm({ name: "", email: "", dni: "" });
-    setFormAsignaciones({});
+    setFormRubros([]);
     setEditingJurado(null);
     setActionError(null);
   };
@@ -61,28 +53,18 @@ export default function JuradoManager({ apiFetch, comparsas, rubros }) {
       email: jurado.email,
       dni: jurado.dni || "",
     });
-    setFormAsignaciones(groupAsignacionesByComparsa(jurado.asignaciones));
+    setFormRubros((jurado.asignaciones || []).map((a) => a.rubro_id));
     setShowForm(true);
     setActionError(null);
   };
 
-  const toggleRubro = (comparsaId, rubroId) => {
-    setFormAsignaciones((prev) => {
-      const current = prev[comparsaId] || [];
-      const next = current.includes(rubroId)
-        ? current.filter((id) => id !== rubroId)
-        : [...current, rubroId];
-      return { ...prev, [comparsaId]: next };
-    });
+  const toggleRubro = (rubroId) => {
+    setFormRubros((prev) =>
+      prev.includes(rubroId)
+        ? prev.filter((id) => id !== rubroId)
+        : [...prev, rubroId]
+    );
   };
-
-  const asignacionesToPayload = () =>
-    Object.entries(formAsignaciones)
-      .map(([comparsaId, rubroIds]) => ({
-        comparsa_id: Number(comparsaId),
-        rubros_ids: rubroIds,
-      }))
-      .filter((a) => a.rubros_ids.length > 0);
 
   const handleSave = async () => {
     if (!form.dni.trim()) {
@@ -98,7 +80,7 @@ export default function JuradoManager({ apiFetch, comparsas, rubros }) {
       name: form.name.trim(),
       email: form.email.trim().toLowerCase(),
       dni: form.dni.trim(),
-      asignaciones: asignacionesToPayload(),
+      rubros_ids: formRubros,
     };
 
     try {
@@ -115,11 +97,11 @@ export default function JuradoManager({ apiFetch, comparsas, rubros }) {
         });
         setJurados((prev) => [created, ...prev]);
         if (created.emailSent) {
-          window.alert("Jurado creado. Se envió el correo con el PIN de acceso.");
+          window.alert("Jurado creado. Se envió el correo de bienvenida.");
         } else {
           window.alert(
-            `Jurado creado, pero ${created.emailError || "no se pudo enviar el correo con el PIN"}.` +
-            " El jurado puede solicitar un PIN nuevo desde la pantalla de inicio de sesión."
+            `Jurado creado, pero ${created.emailError || "no se pudo enviar el correo de bienvenida"}.` +
+            " El jurado puede solicitar su PIN desde la pantalla de inicio de sesión."
           );
         }
       }
@@ -161,7 +143,7 @@ export default function JuradoManager({ apiFetch, comparsas, rubros }) {
       return <span style={{ color: "var(--muted)" }}>Sin asignaciones</span>;
     }
     return jurado.asignaciones
-      .map((a) => `${a.comparsa_name} (${a.rubros.length})`)
+      .map((a) => a.rubro_name)
       .join(", ");
   };
 
@@ -220,34 +202,22 @@ export default function JuradoManager({ apiFetch, comparsas, rubros }) {
 
           <div>
             <p style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", margin: "12px 0 8px" }}>
-              Rubros asignados por comparsa
+              Rubros asignados (se aplican a todas las comparsas)
             </p>
-            {comparsas.length === 0 ? (
-              <div className="notice">No hay comparsas cargadas.</div>
+            {rubros.length === 0 ? (
+              <div className="notice">No hay rubros cargados.</div>
             ) : (
               <div className="jurado-asig-grid">
-                {comparsas.map((c) => {
-                  const comparsaRubros = rubros.filter((r) => r.comparsa_id === c.id);
-                  return (
-                    <div key={c.id} className="jurado-asig-card">
-                      <div className="jurado-asig-title">{c.name}</div>
-                      {comparsaRubros.length === 0 ? (
-                        <div style={{ color: "var(--muted)", fontSize: 13 }}>Sin rubros</div>
-                      ) : (
-                        comparsaRubros.map((r) => (
-                          <label key={r.id} className="jurado-asig-item">
-                            <input
-                              type="checkbox"
-                              checked={(formAsignaciones[c.id] || []).includes(r.id)}
-                              onChange={() => toggleRubro(c.id, r.id)}
-                            />
-                            <span>{r.name}</span>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  );
-                })}
+                {rubros.map((r) => (
+                  <label key={r.id} className="jurado-asig-item">
+                    <input
+                      type="checkbox"
+                      checked={formRubros.includes(r.id)}
+                      onChange={() => toggleRubro(r.id)}
+                    />
+                    <span>{r.name}</span>
+                  </label>
+                ))}
               </div>
             )}
           </div>

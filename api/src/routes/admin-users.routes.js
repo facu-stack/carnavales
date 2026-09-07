@@ -2,15 +2,16 @@ import express from "express";
 import pg from "pg";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { auth } from "../auth/auth.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { requireAdmin } from "../middleware/admin.middleware.js";
 import { emailService } from "../services/email.service.js";
-import { juradoBienvenidaEmail } from "../services/email-templates.js";
+import { juradoAccesoEmail } from "../services/email-templates.js";
 
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
 });
+
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
 const router = express.Router();
 
@@ -22,23 +23,20 @@ const dniSchema = z
   .transform(normalizeDni)
   .refine((value) => /^\d{6,8}$/.test(value), "DNI invalido");
 
-const asignacionSchema = z.object({
-  comparsa_id: z.number().int().positive(),
-  rubros_ids: z.array(z.number().int().positive()).default([]),
-});
+const rubrosIdsSchema = z.array(z.number().int().positive());
 
 const createJuradoSchema = z.object({
   name: z.string().trim().min(1).max(255).optional().default(""),
   email: z.string().trim().toLowerCase().email("Email invalido"),
   dni: dniSchema,
-  asignaciones: z.array(asignacionSchema).default([]),
+  rubros_ids: rubrosIdsSchema.default([]),
 });
 
 const updateJuradoSchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
   email: z.string().trim().toLowerCase().email("Email invalido").optional(),
   dni: dniSchema.optional(),
-  asignaciones: z.array(asignacionSchema).optional(),
+  rubros_ids: rubrosIdsSchema.optional(),
 });
 
 async function userExistsByEmail(client, email, excludeUserId = null) {
@@ -69,40 +67,27 @@ async function dniInUse(client, dni, excludeUserId = null) {
   return rows.length > 0;
 }
 
-async function validateAsignaciones(client, asignaciones) {
-  if (asignaciones.length === 0) return true;
-
-  const rubroIds = [...new Set(asignaciones.flatMap((a) => a.rubros_ids))];
-  if (rubroIds.length === 0) return true;
+async function validateRubros(client, rubrosIds) {
+  const unique = [...new Set(rubrosIds)];
+  if (unique.length === 0) return true;
 
   const { rows } = await client.query(
-    `SELECT id, comparsa_id FROM rubros WHERE id = ANY($1::int[])`,
-    [rubroIds]
+    `SELECT id FROM rubros WHERE id = ANY($1::int[])`,
+    [unique]
   );
-  const rubroMap = new Map(rows.map((r) => [r.id, r.comparsa_id]));
-
-  for (const asignacion of asignaciones) {
-    for (const rubroId of asignacion.rubros_ids) {
-      const comparsa = rubroMap.get(rubroId);
-      if (comparsa === undefined) return false;
-      if (comparsa !== asignacion.comparsa_id) return false;
-    }
-  }
-  return true;
+  return rows.length === unique.length;
 }
 
-async function replaceAsignaciones(client, userId, asignaciones) {
+async function replaceRubros(client, userId, rubrosIds) {
   await client.query(`DELETE FROM jurado_rubros WHERE user_id = $1`, [userId]);
 
-  for (const asignacion of asignaciones) {
-    for (const rubroId of asignacion.rubros_ids) {
-      await client.query(
-        `INSERT INTO jurado_rubros (user_id, comparsa_id, rubro_id)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (user_id, rubro_id) DO NOTHING`,
-        [userId, asignacion.comparsa_id, rubroId]
-      );
-    }
+  for (const rubroId of [...new Set(rubrosIds)]) {
+    await client.query(
+      `INSERT INTO jurado_rubros (user_id, rubro_id)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id, rubro_id) DO NOTHING`,
+      [userId, rubroId]
+    );
   }
 }
 
@@ -113,30 +98,14 @@ async function getJuradoWithAsignaciones(userId) {
   );
   if (user.length === 0) return null;
 
-  const { rows: asignaciones } = await pool.query(
-    `SELECT jr.comparsa_id, jr.rubro_id, c.name AS comparsa_name, r.name AS rubro_name
+  const { rows: rubros } = await pool.query(
+    `SELECT r.id AS rubro_id, r.name AS rubro_name, r.min_score, r.max_score
      FROM jurado_rubros jr
-     JOIN comparsas c ON c.id = jr.comparsa_id
      JOIN rubros r ON r.id = jr.rubro_id
      WHERE jr.user_id = $1
-     ORDER BY jr.comparsa_id, jr.rubro_id`,
+     ORDER BY r.id`,
     [userId]
   );
-
-  const grouped = asignaciones.reduce((acc, row) => {
-    if (!acc[row.comparsa_id]) {
-      acc[row.comparsa_id] = {
-        comparsa_id: row.comparsa_id,
-        comparsa_name: row.comparsa_name,
-        rubros: [],
-      };
-    }
-    acc[row.comparsa_id].rubros.push({
-      rubro_id: row.rubro_id,
-      rubro_name: row.rubro_name,
-    });
-    return acc;
-  }, {});
 
   return {
     id: user[0].id,
@@ -144,7 +113,7 @@ async function getJuradoWithAsignaciones(userId) {
     email: user[0].email,
     dni: user[0].dni || "",
     createdAt: user[0].createdAt,
-    asignaciones: Object.values(grouped),
+    asignaciones: rubros,
   };
 }
 
@@ -170,7 +139,7 @@ router.post("/jurados", requireAuth, requireAdmin, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Datos invalidos" });
   }
-  const { name, email, dni, asignaciones } = parsed.data;
+  const { name, email, dni, rubros_ids } = parsed.data;
 
   const client = await pool.connect();
   try {
@@ -186,7 +155,7 @@ router.post("/jurados", requireAuth, requireAdmin, async (req, res) => {
       return res.status(409).json({ error: "El DNI ya esta en uso" });
     }
 
-    if (!(await validateAsignaciones(client, asignaciones))) {
+    if (!(await validateRubros(client, rubros_ids))) {
       await client.query("ROLLBACK");
       return res.status(400).json({ error: "Asignaciones invalidas" });
     }
@@ -198,7 +167,7 @@ router.post("/jurados", requireAuth, requireAdmin, async (req, res) => {
       [userId, name || "", email, dni]
     );
 
-    await replaceAsignaciones(client, userId, asignaciones);
+    await replaceRubros(client, userId, rubros_ids);
 
     await client.query("COMMIT");
   } catch (error) {
@@ -212,18 +181,18 @@ router.post("/jurados", requireAuth, requireAdmin, async (req, res) => {
   let emailSent = false;
   let emailError = null;
   try {
-    const otp = await auth.api.createVerificationOTP({
-      body: { email, type: "sign-in" },
-    });
     await emailService.send({
       to: email,
       subject: "Tu acceso al sistema de votacion - Carnavales",
-      otp,
-      html: juradoBienvenidaEmail({ name: name || "", dni, otp }),
+      html: juradoAccesoEmail({
+        name: name || "",
+        dni,
+        url: `${FRONTEND_URL}/login`,
+      }),
     });
     emailSent = true;
   } catch (error) {
-    emailError = "No se pudo enviar el correo con el PIN";
+    emailError = "No se pudo enviar el correo de bienvenida";
     console.error("Welcome email delivery failed:", error.message);
   }
 
@@ -291,12 +260,12 @@ router.put("/jurados/:userId", requireAuth, requireAdmin, async (req, res) => {
       );
     }
 
-    if (updates.asignaciones !== undefined) {
-      if (!(await validateAsignaciones(client, updates.asignaciones))) {
+    if (updates.rubros_ids !== undefined) {
+      if (!(await validateRubros(client, updates.rubros_ids))) {
         await client.query("ROLLBACK");
         return res.status(400).json({ error: "Asignaciones invalidas" });
       }
-      await replaceAsignaciones(client, userId, updates.asignaciones);
+      await replaceRubros(client, userId, updates.rubros_ids);
     }
 
     await client.query("COMMIT");
