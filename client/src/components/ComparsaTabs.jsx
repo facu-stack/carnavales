@@ -1,5 +1,3 @@
-import { COMPARSAS, PALETAS, RUBROS } from "../lib/voting-data";
-
 function luminance(hex) {
   const value = hex.replace("#", "");
   const channel = (start) => {
@@ -16,8 +14,9 @@ function contrast(a, b) {
 }
 
 function solidColors(colors) {
-  const bg = colors[0];
-  const secondary = colors.slice(1);
+  const list = colors.length ? colors : ["#ffffff"];
+  const bg = list[0];
+  const secondary = list.slice(1);
   let text;
   if (secondary.length) {
     text = secondary[0];
@@ -35,23 +34,24 @@ function solidColors(colors) {
   return { bg, text };
 }
 
-export default function ComparsaTabs({ activeIndex, scores, confirmed, onSelect }) {
+export default function ComparsaTabs({ comparsas, rubrosByComparsa, activeId, scores, confirmed, onSelect }) {
   return (
     <div className="comparsa-tabs" role="tablist" aria-label="Planillas por comparsa">
-      {COMPARSAS.map((name, i) => {
-        const colors = PALETAS[name] || ["#ffffff"];
+      {comparsas.map((c, i) => {
+        const colors = Array.isArray(c.colors) && c.colors.length ? c.colors : ["#ffffff"];
         const { bg, text: textColor } = solidColors(colors);
-        const isActive = activeIndex === i;
-        const done = confirmed.includes(i);
-        const filled = RUBROS.reduce((count, _, r) => count + (scores[i]?.[r] != null ? 1 : 0), 0);
+        const isActive = activeId === c.id;
+        const done = confirmed.includes(c.id);
+        const rubros = rubrosByComparsa[c.id] || [];
+        const filled = rubros.filter((r) => scores[c.id]?.[r.id] != null).length;
 
         return (
           <button
-            key={i}
+            key={c.id}
             role="tab"
             aria-selected={isActive}
             className={`comparsa-tab ${isActive ? "active" : ""}`}
-            onClick={() => onSelect(i)}
+            onClick={() => onSelect(c.id)}
             style={
               isActive
                 ? { backgroundColor: bg, borderColor: "transparent", color: textColor }
@@ -60,19 +60,19 @@ export default function ComparsaTabs({ activeIndex, scores, confirmed, onSelect 
           >
             <span className="comparsa-tab-num">{i + 1}</span>
             {isActive ? (
-              <span className="comparsa-tab-name">{name}</span>
+              <span className="comparsa-tab-name">{c.name}</span>
             ) : (
               <span
                 className="comparsa-tab-name boxed"
                 style={{ backgroundColor: bg, color: textColor }}
               >
-                {name}
+                {c.name}
               </span>
             )}
             {done ? (
               <span className="comparsa-tab-badge done">✓</span>
             ) : filled > 0 ? (
-              <span className="comparsa-tab-badge">{filled}/{RUBROS.length}</span>
+              <span className="comparsa-tab-badge">{filled}/{rubros.length}</span>
             ) : null}
           </button>
         );

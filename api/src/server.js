@@ -10,6 +10,8 @@ import { auth } from "./auth/auth.js";
 import protectedRoutes from "./routes/protected.routes.js";
 import loginPinRoutes from "./routes/login-pin.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
+import adminUsersRoutes from "./routes/admin-users.routes.js";
+import juradoRoutes from "./routes/jurado.routes.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -78,7 +80,9 @@ export function createApp({ rateLimitEnabled = true, authRateLimitMax = 10 } = {
 
   app.use("/api", protectedRoutes);
   app.use("/api", loginPinRoutes);
+  app.use("/api", juradoRoutes);
   app.use("/api/admin", adminRoutes);
+  app.use("/api/admin", adminUsersRoutes);
 
   app.use((err, req, res, next) => {
     console.error("Unexpected error:", err);

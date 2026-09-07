@@ -2,24 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession, signOut } from "../lib/auth-client";
 import { useNavigate } from "react-router-dom";
 import Header from "../components/Header";
+import JuradoManager from "../components/JuradoManager";
 import { resetOtpSent } from "./VerifyCode";
 import { COMPARSAS, RUBROS } from "../lib/voting-data";
 import { loadVotingState } from "../lib/voting-storage";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
-
-async function apiFetch(path, options = {}) {
-  const res = await fetch(`${API_URL}${path}`, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed (${res.status})`);
-  }
-  return res.json();
-}
+import { apiFetch } from "../lib/api";
 
 export default function Admin() {
   const { data: session, isPending } = useSession();
@@ -558,6 +545,9 @@ export default function Admin() {
               </tbody>
             </table>
           </div>
+
+          {/* ---- Jurados ---- */}
+          <JuradoManager apiFetch={apiFetch} comparsas={comparsas} rubros={rubros} />
 
           <div style={{ marginTop: 28 }}>
             <button className="btn btn-ghost" onClick={() => signOut().then(() => (window.location.href = "/login"))}>

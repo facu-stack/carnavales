@@ -43,6 +43,18 @@ async function migrate() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS jurado_rubros (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        comparsa_id INTEGER NOT NULL,
+        rubro_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        CONSTRAINT jurado_rubros_user_rubro_key
+          UNIQUE (user_id, rubro_id)
+      );
+    `);
+
     // Ensure rubros.comparsa_id references comparsas(id)
     await ensureForeignKey(client, "rubros", "rubros_comparsa_id_fkey", {
       column: "comparsa_id",
@@ -63,6 +75,25 @@ async function migrate() {
     await ensureIndex(client, "idx_calificacion_account_id", "calificacion", "account_id");
     await ensureIndex(client, "idx_calificacion_rubro_id", "calificacion", "rubro_id");
     await ensureIndex(client, "idx_calificacion_noche", "calificacion", "noche");
+
+    // Ensure jurado_rubros foreign keys
+    await ensureForeignKey(client, "jurado_rubros", "jurado_rubros_user_id_fkey", {
+      column: "user_id",
+      references: '"user"(id)',
+    });
+    await ensureForeignKey(client, "jurado_rubros", "jurado_rubros_comparsa_id_fkey", {
+      column: "comparsa_id",
+      references: "comparsas(id)",
+    });
+    await ensureForeignKey(client, "jurado_rubros", "jurado_rubros_rubro_id_fkey", {
+      column: "rubro_id",
+      references: "rubros(id)",
+    });
+
+    // Ensure jurado_rubros indexes
+    await ensureIndex(client, "idx_jurado_rubros_user_id", "jurado_rubros", "user_id");
+    await ensureIndex(client, "idx_jurado_rubros_comparsa_id", "jurado_rubros", "comparsa_id");
+    await ensureIndex(client, "idx_jurado_rubros_rubro_id", "jurado_rubros", "rubro_id");
 
     await seedComparsas(client);
     await seedRubros(client);

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useSession, signOut } from "../lib/auth-client";
 import { useNavigate } from "react-router-dom";
 import { resetOtpSent } from "./VerifyCode";
-import { COMPARSAS } from "../lib/voting-data";
+import { apiFetch } from "../lib/api";
 import {
   loadVotingState,
   saveVotingState,
@@ -17,8 +17,14 @@ import ThanksScreen from "./ThanksScreen";
 export default function Home() {
   const { data: session, isPending } = useSession();
   const navigate = useNavigate();
+
+  const [comparsas, setComparsas] = useState([]);
+  const [rubrosByComparsa, setRubrosByComparsa] = useState({});
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState(null);
+
   const [view, setView] = useState("home");
-  const [currentComparsa, setCurrentComparsa] = useState(0);
+  const [currentComparsaId, setCurrentComparsaId] = useState(null);
   const [scores, setScores] = useState(() => loadVotingState().scores);
   const [confirmed, setConfirmed] = useState(() => loadVotingState().confirmed);
 
@@ -32,6 +38,42 @@ export default function Home() {
     }
   }, [session, navigate]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAssigned() {
+      try {
+        const [assignedComparsas, assignedRubros] = await Promise.all([
+          apiFetch("/api/jurado/mis-comparsas"),
+          apiFetch("/api/jurado/mis-rubros"),
+        ]);
+        if (cancelled) return;
+        const grouped = assignedRubros.reduce((acc, rubro) => {
+          if (!acc[rubro.comparsa_id]) acc[rubro.comparsa_id] = [];
+          acc[rubro.comparsa_id].push(rubro);
+          return acc;
+        }, {});
+        setComparsas(assignedComparsas);
+        setRubrosByComparsa(grouped);
+        if (assignedComparsas.length > 0) {
+          setCurrentComparsaId(assignedComparsas[0].id);
+        }
+      } catch (err) {
+        if (!cancelled) setDataError(err.message);
+      } finally {
+        if (!cancelled) setDataLoading(false);
+      }
+    }
+
+    if (session && !session.user.isAdmin) {
+      loadAssigned();
+    } else {
+      setDataLoading(false);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
   const handleLogout = useCallback(async () => {
     try {
       await signOut();
@@ -43,15 +85,15 @@ export default function Home() {
     }
   }, []);
 
-  const handleScoreChange = useCallback((comparsaIdx, rubroIdx, value) => {
+  const handleScoreChange = useCallback((comparsaId, rubroId, value) => {
     setScores((prev) => {
-      const comparsa = { ...(prev[comparsaIdx] || {}) };
+      const comparsa = { ...(prev[comparsaId] || {}) };
       if (value === null) {
-        delete comparsa[rubroIdx];
+        delete comparsa[rubroId];
       } else {
-        comparsa[rubroIdx] = value;
+        comparsa[rubroId] = value;
       }
-      return { ...prev, [comparsaIdx]: comparsa };
+      return { ...prev, [comparsaId]: comparsa };
     });
   }, []);
 
@@ -60,37 +102,71 @@ export default function Home() {
   }, []);
 
   const handleConfirm = useCallback(
-    (comparsaIdx) => {
+    (comparsaId) => {
       setConfirmed((prev) => {
-        if (prev.includes(comparsaIdx)) return prev;
-        return [...prev, comparsaIdx];
+        if (prev.includes(comparsaId)) return prev;
+        return [...prev, comparsaId];
       });
 
-      const next = comparsaIdx + 1;
-      if (next < COMPARSAS.length) {
-        setCurrentComparsa(next);
+      const nextIndex = comparsas.findIndex((c) => c.id === comparsaId) + 1;
+      if (nextIndex < comparsas.length) {
+        setCurrentComparsaId(comparsas[nextIndex].id);
         setView("vote");
       } else {
-        setView("home");
+        setView("thanks");
       }
     },
-    []
+    [comparsas]
   );
 
   const handleBackToHome = useCallback(() => {
     setView("home");
   }, []);
 
-  const handleBackToVote = useCallback(() => {
-    setView("vote");
-  }, []);
-
-  if (isPending) {
+  if (isPending || dataLoading) {
     return <div className="container">Cargando...</div>;
   }
 
   const name = session?.user?.name || "";
   const firstName = name.split(" ")[0] || "";
+
+  if (dataError) {
+    return (
+      <div className="app">
+        <Header onLogout={handleLogout} />
+        <main className="stage">
+          <div className="wrap">
+            <h1 className="screen-title">Bienvenido</h1>
+            <div className="notice" style={{ marginTop: 18 }}>
+              No se pudieron cargar tus asignaciones: {dataError}
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (comparsas.length === 0) {
+    return (
+      <div className="app">
+        <Header onLogout={handleLogout} />
+        <main className="stage">
+          <div className="wrap">
+            <h1 className="screen-title">
+              {firstName ? `Bienvenido, ${firstName}` : "Bienvenido"}
+            </h1>
+            <div className="notice" style={{ marginTop: 18 }}>
+              Aún no tenés rubros asignados para votar. Contactá al administrador.
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const currentComparsa =
+    comparsas.find((c) => c.id === currentComparsaId) || comparsas[0];
+  const currentRubros = rubrosByComparsa[currentComparsa.id] || [];
 
   if (view === "vote") {
     return (
@@ -98,15 +174,20 @@ export default function Home() {
         <Header onLogout={handleLogout} />
         <main className="stage">
           <ComparsaTabs
-            activeIndex={currentComparsa}
+            comparsas={comparsas}
+            rubrosByComparsa={rubrosByComparsa}
+            activeId={currentComparsa.id}
             scores={scores}
             confirmed={confirmed}
-            onSelect={(i) => setCurrentComparsa(i)}
+            onSelect={(id) => {
+              setCurrentComparsaId(id);
+              setView("vote");
+            }}
           />
           <VotingScreen
-            comparsaName={COMPARSAS[currentComparsa]}
-            comparsaIndex={currentComparsa}
-            comparsaCount={COMPARSAS.length}
+            comparsa={currentComparsa}
+            comparsaCount={comparsas.length}
+            rubros={currentRubros}
             scores={scores}
             onScoreChange={handleScoreChange}
             onContinue={handleContinueToConfirm}
@@ -123,11 +204,11 @@ export default function Home() {
         <Header onLogout={handleLogout} />
         <main className="stage">
           <ConfirmScreen
-            comparsaName={COMPARSAS[currentComparsa]}
-            comparsaIndex={currentComparsa}
+            comparsa={currentComparsa}
+            rubros={currentRubros}
             scores={scores}
             onConfirm={handleConfirm}
-            onBack={handleBackToVote}
+            onBack={() => setView("vote")}
           />
         </main>
       </div>
@@ -154,8 +235,8 @@ export default function Home() {
             {firstName ? `Bienvenido, ${firstName}` : "Bienvenido"}
           </h1>
           <p className="screen-lede">
-            Puntuá cada comparsa en todos los rubros. Tus notas se guardan
-            automáticamente.
+            Puntuá cada comparsa asignada en todos tus rubros. Tus notas se
+            guardan automáticamente.
           </p>
 
           <div className="event-banner">
@@ -168,11 +249,13 @@ export default function Home() {
 
           <p className="tabs-hint">Elegí una comparsa para cargar su planilla:</p>
           <ComparsaTabs
-            activeIndex={null}
+            comparsas={comparsas}
+            rubrosByComparsa={rubrosByComparsa}
+            activeId={null}
             scores={scores}
             confirmed={confirmed}
-            onSelect={(i) => {
-              setCurrentComparsa(i);
+            onSelect={(id) => {
+              setCurrentComparsaId(id);
               setView("vote");
             }}
           />

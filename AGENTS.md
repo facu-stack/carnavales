@@ -38,17 +38,20 @@ preparada para autorización basada en roles.
 - PostgreSQL 14+
 - pg Pool (sin ORM)
 - Better Auth gestiona sus propias tablas
-- Tablas de negocio `comparsas`, `rubros` y `calificacion` (gestionadas por `npm run migrate-tables`)
+- Tablas de negocio `comparsas`, `rubros`, `calificacion` y `jurado_rubros` (gestionadas por `npm run migrate-tables`)
 
 ## Modelo de datos de votación
 
 ```
 user (text PK: id) 1:N account (text PK: id) 1:N calificacion N:1 rubros N:1 comparsas
+user (text PK: id) 1:N jurado_rubros N:1 rubros (asignación de rubros por jurado)
 ```
 
 - `comparsas` 1:N `rubros` (cada rubro pertenece a una comparsa vía `rubros.comparsa_id`)
 - `rubros` 1:N `calificacion` (cada calificación pertenece a un rubro vía `calificacion.rubro_id`)
 - `account` 1:N `calificacion` (cada calificación registra el jurado vía `calificacion.account_id`)
+- `user` 1:N `jurado_rubros` (asignaciones de rubros/comparsas por jurado; cada fila une
+  `user_id`, `comparsa_id` y `rubro_id`, con `UNIQUE (user_id, rubro_id)` y FKs ON DELETE CASCADE)
 - `calificacion.puntaje` con CHECK (1..10) y UNIQUE (account_id, rubro_id, noche)
 
 ## Authentication
@@ -145,6 +148,12 @@ La autenticación debe utilizar Better Auth como componente principal.
   valida que el usuario exista y que su `dni` coincida (respuesta genérica e
   idéntica si no existen o no coinciden, sin enumeración) y recién entonces
   emite el OTP de forma server-side vía `auth.api.sendVerificationOTP`.
+- **Alta de jurados por el admin** (`POST /api/admin/jurados`): se inserta el usuario en la
+  tabla `user` de Better Auth (`emailVerified=false`, `dni`, `isAdmin=false`) y, en la misma
+  operación, se emite un PIN inicial vía `auth.api.createVerificationOTP` y se envía un correo
+  de bienvenida con el PIN (`juradoBienvenidaEmail`). El jurado luego hace login con
+  email + DNI + el PIN solicitado en `/api/login-pin/request`; Better Auth lo marca verificado
+  en el primer sign-in exitoso (`sign-in/email-otp`).
 - Los endpoints HTTP del plugin `email-otp` (`/api/auth/email-otp/*`, etc.)
   están **bloqueados** con 404 en `server.js` para impedir enviar/verificar OTP
   por fuera del flujo controlado; solo se expone `/api/auth/sign-in/email-otp`
@@ -200,13 +209,16 @@ api/
 │   │   └── auth.middleware.js  # requireAuth y requireTwoFactor
 │   ├── routes/
 │   │   ├── protected.routes.js # Rutas /api/me, /api/enable-2fa, /api/health
-│   │   └── admin.routes.js     # CRUD /api/admin/comparsas y /api/admin/rubros
+│   │   ├── login-pin.routes.js # POST /api/login-pin/request
+│   │   ├── admin.routes.js     # CRUD /api/admin/comparsas y /api/admin/rubros
+│   │   ├── admin-users.routes.js # Gestión de jurados /api/admin/jurados*
+│   │   └── jurado.routes.js      # Asignaciones del jurado /api/jurado/mis-*
 │   ├── services/
 │   │   ├── email.service.js    # Adaptadores console y SMTP seguros
-│   │   └── email-templates.js  # Plantillas HTML profesionales (OTP, Reset)
+│   │   └── email-templates.js  # Plantillas HTML profesionales (OTP, Reset, Bienvenida jurado)
 │   └── server.js               # Express + Better Auth
 ├── scripts/
-│   ├── migrate-tables.js       # Crea/llena comparsas, rubros y calificacion
+│   ├── migrate-tables.js       # Crea/llena comparsas, rubros, calificacion y jurado_rubros
 │   └── promote-admin.js        # Habilita isAdmin a un usuario por email
 ├── .env
 ├── .env.example
@@ -229,11 +241,13 @@ client/
 ├── src/
 │   ├── lib/
 │   │   ├── auth-client.js     # Cliente Better Auth
+│   │   ├── api.js             # apiFetch compartido (fetch + credentials)
 │   │   └── voting-storage.js  # Persistencia de la sesión de votación (sessionStorage)
 │   ├── components/
 │   │   ├── AuthLink.jsx         # Enlaces que conservan el fondo del modal
 │   │   ├── Modal.jsx             # Modal accesible controlado por rutas
-│   │   └── ProtectedRoute.jsx    # Guard de rutas (solo UX)
+│   │   ├── ProtectedRoute.jsx    # Guard de rutas (solo UX)
+│   │   └── JuradoManager.jsx     # Gestión de jurados y asignaciones en el panel admin
 │   ├── pages/
 │   │   ├── Landing.jsx
 │   │   ├── Login.jsx
@@ -242,7 +256,9 @@ client/
 │   │   ├── ForgotPassword.jsx
 │   │   ├── ResetPassword.jsx
 │   │   ├── Home.jsx
-│   │   └── Admin.jsx
+│   │   ├── Admin.jsx
+│   │   ├── VotingScreen.jsx
+│   │   └── ConfirmScreen.jsx
 │   ├── router/
 │   │   └── Router.jsx
 │   ├── App.jsx
@@ -265,7 +281,8 @@ siendo válido y muestra el modal a pantalla completa.
 - PostgreSQL 14+
 - pg Pool (sin ORM)
 - Better Auth crea/modifica sus tablas mediante `npm run migrate` en `api`
-- Tablas de negocio `comparsas`, `rubros` y `calificacion` mediante `npm run migrate-tables` en `api`
+- Tablas de negocio `comparsas`, `rubros`, `calificacion` y `jurado_rubros`
+  mediante `npm run migrate-tables` en `api`
 - Parameterized queries (`$1, $2...`) siempre
 - Constraints, foreign keys, índices para integridad
 - No almacenar passwords en texto plano
@@ -311,7 +328,22 @@ siendo válido y muestra el modal a pantalla completa.
 | PUT | /api/admin/rubros/:id | Editar rubro |
 | DELETE | /api/admin/rubros/:id | Eliminar rubro |
 
-La lectura (GET) requiere `requireAuth`; las mutaciones (POST/PUT/DELETE)
+## Endpoints de jurados
+
+| Método | Endpoint | Auth | Descripción |
+|--------|----------|------|-------------|
+| GET | /api/admin/jurados | ✓ + admin | Listar jurados (incluye DNI y asignaciones) |
+| POST | /api/admin/jurados | ✓ + admin | Crear jurado (email+DNI) y enviar PIN de bienvenida |
+| PUT | /api/admin/jurados/:userId | ✓ + admin | Editar jurado y sus asignaciones |
+| DELETE | /api/admin/jurados/:userId | ✓ + admin | Eliminar un jurado (nunca un admin) |
+| DELETE | /api/admin/jurados | ✓ + admin | Eliminar todos los jurados (usuarios `isAdmin=false`); los admins nunca se borran |
+| GET | /api/jurado/mis-rubros | ✓ | Rubros (id, nombre, rango, comparsa) asignados al jurado logueado |
+| GET | /api/jurado/mis-comparsas | ✓ | Comparsas para las que el jurado tiene al menos un rubro asignado |
+
+El `dni` es un campo PII: el listado `GET /api/admin/jurados` exige `requireAdmin`
+(fail-secure), y los logs del backend nunca imprimen el DNI ni `req.body` completo.
+
+La lectura (GET) de comparsas/rubros requiere `requireAuth`; las mutaciones (POST/PUT/DELETE)
 requieren además `requireAdmin` (fail-secure: 401 sin sesión, 403 sin `isAdmin`).
 
 ## Rate limiting
@@ -428,6 +460,7 @@ Usar estas Skills al desarrollar, modificar o revisar código.
 - [x] 2FA/OTP backend: habilitación, envío, verificación y sesión final
 - [x] Login PIN (email+DNI): envío, verificación, sesión y bloqueo HTTP del plugin `email-otp`
 - [x] Admin: autorización de `/api/admin/*` (401 sin sesión, 403 sin `isAdmin`)
+- [x] Jurados: CRUD `/api/admin/jurados`, PIN de bienvenida, asignaciones, DNI/email duplicados, borrado masivo conservando admins
 
 ## Framework
 
@@ -452,7 +485,7 @@ Usar estas Skills al desarrollar, modificar o revisar código.
 cd api
 npm install
 npm run migrate          # tablas de Better Auth (agrega isAdmin en "user")
-npm run migrate-tables   # tablas de negocio comparsas, rubros y calificacion
+npm run migrate-tables   # tablas de negocio comparsas, rubros, calificacion y jurado_rubros
 npm run dev
 
 # Frontend

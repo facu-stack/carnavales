@@ -1,18 +1,18 @@
 import { useState, useCallback } from "react";
-import { RUBROS, PALETAS } from "../lib/voting-data";
 
-export default function ConfirmScreen({ comparsaName, comparsaIndex, scores, onConfirm, onBack }) {
+export default function ConfirmScreen({ comparsa, rubros, scores, onConfirm, onBack }) {
   const [syncing, setSyncing] = useState(false);
-  const comparsaScores = scores[comparsaIndex] || {};
-  const primaryColor = (PALETAS[comparsaName] || ["#ffffff"])[0];
+  const comparsaScores = scores[comparsa.id] || {};
+  const colors = Array.isArray(comparsa.colors) && comparsa.colors.length ? comparsa.colors : ["#ffffff"];
+  const primaryColor = colors[0];
 
   const handleConfirm = useCallback(() => {
     setSyncing(true);
     setTimeout(() => {
       setSyncing(false);
-      onConfirm(comparsaIndex);
+      onConfirm(comparsa.id);
     }, 1600);
-  }, [comparsaIndex, onConfirm]);
+  }, [comparsa.id, onConfirm]);
 
   if (syncing) {
     return (
@@ -50,13 +50,13 @@ export default function ConfirmScreen({ comparsaName, comparsaIndex, scores, onC
           <div className="confirm-row">
             <span className="k">Comparsa</span>
             <span className="v">
-              {comparsaIndex + 1} · {comparsaName}
+              {comparsa.position} · {comparsa.name}
             </span>
           </div>
-          {RUBROS.map((rubro, r) => (
-            <div key={r} className="confirm-row">
-              <span className="k">{rubro}</span>
-              <span className="v">{comparsaScores[r]}/10</span>
+          {rubros.map((rubro) => (
+            <div key={rubro.id} className="confirm-row">
+              <span className="k">{rubro.name}</span>
+              <span className="v">{comparsaScores[rubro.id]}/10</span>
             </div>
           ))}
         </div>

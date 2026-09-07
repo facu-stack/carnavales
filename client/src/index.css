@@ -1464,6 +1464,42 @@ input:focus-visible {
   transform: scale(1.15);
 }
 
+.jurado-asig-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.jurado-asig-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+
+.jurado-asig-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+
+.jurado-asig-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--fg);
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.jurado-asig-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
 @media (max-width: 600px) {
   .admin-form {
     flex-direction: column;

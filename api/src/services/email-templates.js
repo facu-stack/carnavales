@@ -66,6 +66,43 @@ export function otpEmail({ otp }) {
   });
 }
 
+export function juradoBienvenidaEmail({ name, dni, otp }) {
+  return wrap({
+    title: "Tu acceso al sistema de votación",
+    preheader: "Tu cuenta de jurado fue creada. Utiliza el PIN para iniciar sesión.",
+    children: `
+      <p style="margin:0 0 16px;font-size:14px;color:#666666;line-height:1.6;">
+        ${name ? `Hola <strong>${name}</strong>,` : "Hola,"} tu cuenta de jurado en el
+        sistema de votación de Carnavales fue creada correctamente.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 12px;">
+        <tr>
+          <td style="padding:14px 20px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+            <p style="margin:0 0 8px;font-size:13px;color:#555555;">Para iniciar sesión vas a necesitar tu email y tu DNI:</p>
+            <p style="margin:0;font-size:15px;font-weight:700;color:${BRAND_COLOR};font-family:'Courier New',monospace;">
+              ${dni}
+            </p>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:0 0 12px;font-size:14px;color:#666666;line-height:1.6;">
+        Tu <strong>PIN de acceso</strong> es:
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 12px;">
+        <tr>
+          <td align="center" style="padding:20px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+            <p style="margin:0;font-size:32px;font-weight:700;letter-spacing:8px;color:${BRAND_COLOR};font-family:'Courier New',monospace;">${otp}</p>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:0;font-size:14px;color:#666666;text-align:center;line-height:1.5;">
+        Este código expira en <strong>5 minutos</strong>. Si necesitás un PIN nuevo,
+        solicitá el ingreso desde la pantalla de inicio de sesión.
+      </p>
+    `,
+  });
+}
+
 export function passwordResetEmail({ url }) {
   return wrap({
     title: "Restablece tu contraseña",
