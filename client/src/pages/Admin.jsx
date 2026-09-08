@@ -3,9 +3,9 @@ import { useSession, signOut } from "../lib/auth-client";
 import { useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 import JuradoManager from "../components/JuradoManager";
+import NocheManager from "../components/NocheManager";
+import Resultados from "../components/Resultados";
 import { resetOtpSent } from "./VerifyCode";
-import { COMPARSAS, RUBROS } from "../lib/voting-data";
-import { loadVotingState } from "../lib/voting-storage";
 import { apiFetch } from "../lib/api";
 
 export default function Admin() {
@@ -17,9 +17,27 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [votos, setVotos] = useState([]);
+  const [votosStatus, setVotosStatus] = useState({ loading: false, error: null });
+  const [votosNocheId, setVotosNocheId] = useState("");
+
+  const loadVotos = useCallback(async (nocheId) => {
+    if (!nocheId) return;
+    setVotosStatus({ loading: true, error: null });
+    try {
+      const data = await apiFetch(`/api/admin/votos?noche_id=${nocheId}`);
+      setVotos(data);
+    } catch (err) {
+      setVotosStatus((s) => ({ ...s, error: err.message }));
+    } finally {
+      setVotosStatus((s) => ({ ...s, loading: false }));
+    }
+  }, [apiFetch]);
+
   const [editingComparsa, setEditingComparsa] = useState(null);
   const [editingRubro, setEditingRubro] = useState(null);
 
+  const [noches, setNoches] = useState([]);
   const [newComparsa, setNewComparsa] = useState({ name: "", position: 0, colors: ["#ffffff"] });
   const [newRubro, setNewRubro] = useState({ name: "", min_score: 5, max_score: 10 });
   const [showAddComparsa, setShowAddComparsa] = useState(false);
@@ -56,6 +74,7 @@ export default function Admin() {
 
   useEffect(() => {
     fetchData();
+    apiFetch("/api/admin/noches").then(setNoches).catch(() => {});
   }, [fetchData]);
 
   if (isPending || loading) {
@@ -179,46 +198,83 @@ export default function Admin() {
           {/* ---- Estado de votación ---- */}
           <div className="admin-section">
             <h2>Estado de votación del jurado</h2>
-            {(() => {
-              const { scores, confirmed } = loadVotingState();
-              const hasData = Object.keys(scores).length > 0 || confirmed.length > 0;
-              if (!hasData) {
-                return (
-                  <div className="notice">Todavía no hay votos cargados en esta sesión.</div>
-                );
-              }
-              return (
+            <div className="admin-field" style={{ maxWidth: 320, marginBottom: 12 }}>
+              <label>Noche</label>
+              <select
+                value={votosNocheId}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setVotosNocheId(value);
+                  if (value) loadVotos(value);
+                }}
+              >
+                <option value="">Seleccionar noche...</option>
+                {noches.map((n) => (
+                  <option key={n.id} value={n.id}>{n.name}</option>
+                ))}
+              </select>
+            </div>
+            {votosStatus.loading && (
+              <div className="notice">Cargando estado de votación...</div>
+            )}
+            {!votosStatus.loading && votosStatus.error && (
+              <div className="notice">Error: {votosStatus.error}</div>
+            )}
+            {!votosStatus.loading && !votosStatus.error && votosNocheId && votos.length === 0 && (
+              <div className="notice">Todavía no hay votos para esta noche.</div>
+            )}
+            {!votosNocheId && (
+              <div className="notice">Seleccioná una noche para ver el cumplimiento.</div>
+            )}
+            {!votosStatus.loading && !votosStatus.error && votosNocheId && votos.length > 0 && (
+              <div style={{ overflowX: "auto" }}>
                 <table className="admin-table" style={{ marginTop: 8 }}>
                   <thead>
                     <tr>
-                      <th>#</th>
+                      <th>Jurado</th>
                       <th>Comparsa</th>
-                      <th>Rubros votados</th>
-                      <th>Planilla confirmada</th>
+                      <th>Asignados</th>
+                      <th>Votados</th>
+                      <th>Estado</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {COMPARSAS.map((name, i) => {
-                      const total = RUBROS.length;
-                      const filled = RUBROS.reduce(
-                        (count, _, r) => count + (scores[i]?.[r] != null ? 1 : 0),
-                        0
-                      );
-                      if (filled === 0 && !confirmed.includes(i)) return null;
+                    {votos.map((v) => {
+                      const confirmada = v.assigned > 0 && v.voted >= v.assigned;
+                      const enProgreso = v.assigned > 0 && v.voted > 0 && !confirmada;
                       return (
-                        <tr key={i}>
-                          <td>{i + 1}</td>
-                          <td>{name}</td>
-                          <td>{filled}/{total}</td>
-                          <td>{confirmed.includes(i) ? "✓" : "Pendiente"}</td>
+                        <tr key={`${v.jurado_id}-${v.comparsa_id}`}>
+                          <td>{v.jurado_name}</td>
+                          <td>{v.position} · {v.comparsa_name}</td>
+                          <td>{v.assigned}</td>
+                          <td>{v.voted}</td>
+                          <td>
+                            {confirmada
+                              ? "✓ Votó"
+                              : enProgreso
+                                ? `${v.voted}/${v.assigned}`
+                                : "Pendiente"}
+                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
-              );
-            })()}
+              </div>
+            )}
           </div>
+
+          {/* ---- Noches ---- */}
+          <NocheManager apiFetch={apiFetch} />
+
+          {/* ---- Resultados ---- */}
+          {noches.length >= 3 ? (
+            <Resultados apiFetch={apiFetch} />
+          ) : (
+            <p className="notice" style={{ marginTop: 12 }}>
+              La sección Resultados se habilitará cuando haya al menos tres noches cargadas.
+            </p>
+          )}
 
           {/* ---- Comparsas ---- */}
           <div className="admin-section">
@@ -313,15 +369,38 @@ export default function Admin() {
                     </td>
                     <td>
                       <div className="admin-colors">
-                        {(Array.isArray(c.colors) ? c.colors : []).map((color, i) => (
+                        {(Array.isArray(editingComparsa?.id === c.id ? editingComparsa.colors : c.colors)
+                          ? editingComparsa?.id === c.id ? editingComparsa.colors : c.colors
+                          : []).map((color, i) => (
                           <div
                             key={i}
                             className="admin-color-chip"
                             style={{ backgroundColor: color }}
-                            title={color}
+                            title={editingComparsa?.id === c.id ? "Click para quitar" : color}
+                            onClick={
+                              editingComparsa?.id === c.id
+                                ? () => handleRemoveColor(setEditingComparsa, editingComparsa, i)
+                                : undefined
+                            }
                           />
                         ))}
                       </div>
+                      {editingComparsa?.id === c.id && (
+                        <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+                          <input
+                            type="color"
+                            value={colorInput}
+                            onChange={(e) => setColorInput(e.target.value)}
+                            style={{ width: 38, height: 34, padding: 2, cursor: "pointer" }}
+                          />
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => handleAddColor(setEditingComparsa, editingComparsa)}
+                          >
+                            Agregar color
+                          </button>
+                        </div>
+                      )}
                     </td>
                     <td>
                       <div className="admin-actions">

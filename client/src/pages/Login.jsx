@@ -25,10 +25,11 @@ export default function Login() {
       });
 
       if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
         if (res.status === 429) {
           setError("Demasiados intentos. Espera unos minutos e inténtalo de nuevo.");
         } else {
-          setError("Datos inválidos. Verifica el email y el DNI.");
+          setError(body.error || "Datos inválidos. Verifica el email y el DNI.");
         }
         return;
       }
@@ -71,7 +72,11 @@ export default function Login() {
           />
         </div>
         {error && <div className="error">{error}</div>}
-        <button type="submit" disabled={loading}>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{ height: "56px", width: "60%", padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto" }}
+        >
           {loading ? "Enviando..." : "Iniciar sesión"}
         </button>
       </form>

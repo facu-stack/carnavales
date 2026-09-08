@@ -12,6 +12,8 @@ import loginPinRoutes from "./routes/login-pin.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import adminUsersRoutes from "./routes/admin-users.routes.js";
 import juradoRoutes from "./routes/jurado.routes.js";
+import juradoNocheRoutes from "./routes/jurado-noche.routes.js";
+import nochesRoutes, { limpiarNochesFinalizadas } from "./routes/noches.routes.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -81,6 +83,8 @@ export function createApp({ rateLimitEnabled = true, authRateLimitMax = 10 } = {
   app.use("/api", protectedRoutes);
   app.use("/api", loginPinRoutes);
   app.use("/api", juradoRoutes);
+  app.use("/api", juradoNocheRoutes);
+  app.use("/api/admin", nochesRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/admin", adminUsersRoutes);
 
@@ -105,6 +109,15 @@ async function start() {
     await pool.query("SELECT 1");
     await pool.end();
     console.log("Database connected.");
+
+    // Limpieza automática de noches vencidas (fin de disponibilidad + 1 semana).
+    // Se ejecuta al iniciar y luego cada hora. El timer no evita el cierre del proceso.
+    await limpiarNochesFinalizadas();
+    setInterval(() => {
+      limpiarNochesFinalizadas().catch((error) => {
+        console.error("Cleanup noches falló:", error.message);
+      });
+    }, 60 * 60 * 1000).unref();
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

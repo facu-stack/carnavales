@@ -139,3 +139,96 @@ export function passwordResetEmail({ url }) {
     `,
   });
 }
+
+function formatFecha(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+function formatHora(iso) {
+  const d = new Date(iso);
+  return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
+
+export function nochePublicadaEmail({ name, nocheNombre, fecha, horaInicio, horaAcceso, url }) {
+  return wrap({
+    title: "Fuiste asignado a una noche",
+    preheader: `Fue publicado ${nocheNombre}. Ya podés prepararte para votar.`,
+    children: `
+      <p style="margin:0 0 16px;font-size:14px;color:#666666;line-height:1.6;">
+        Hola <strong>${name || "jurado"}</strong>, fuiste asignado a la siguiente noche del
+        carnaval. Ya podés ingresar para ver las comparsas y preparar tus votaciones.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 16px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+        <tr>
+          <td style="padding:14px 20px;background:#f8fafc;">
+            <p style="margin:0 0 6px;font-size:12px;color:#999999;text-transform:uppercase;letter-spacing:.04em;">Noche</p>
+            <p style="margin:0;font-size:18px;font-weight:700;color:${BRAND_COLOR};">${nocheNombre}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:14px 20px;border-top:1px solid #eef1f5;">
+            <p style="margin:0 0 6px;font-size:12px;color:#999999;text-transform:uppercase;letter-spacing:.04em;">Fecha</p>
+            <p style="margin:0;font-size:15px;font-weight:600;color:#1a1a1a;">${fecha}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:14px 20px;border-top:1px solid #eef1f5;">
+            <p style="margin:0 0 6px;font-size:12px;color:#999999;text-transform:uppercase;letter-spacing:.04em;">Inicio del carnaval</p>
+            <p style="margin:0;font-size:15px;font-weight:600;color:#1a1a1a;">${horaInicio}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:14px 20px;border-top:1px solid #eef1f5;">
+            <p style="margin:0 0 6px;font-size:12px;color:#999999;text-transform:uppercase;letter-spacing:.04em;">Podrás comenzar a votar a las</p>
+            <p style="margin:0;font-size:15px;font-weight:600;color:#1a1a1a;">${horaAcceso}</p>
+          </td>
+        </tr>
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 16px;">
+        <tr>
+          <td align="center">
+            <a href="${url}"
+               style="display:inline-block;padding:14px 32px;background:${ACCENT_COLOR};color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">
+              Ir al sistema de votación
+            </a>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:0;font-size:14px;color:#666666;text-align:center;line-height:1.5;">
+        Para ingresar usá tu <strong>email</strong> y tu <strong>DNI</strong>. Vas a recibir
+        un <strong>código (PIN)</strong> por correo.
+      </p>
+    `,
+  });
+}
+
+export function actividadSospechosaEmail({ name, fechaHora }) {
+  return wrap({
+    title: "Alerta de actividad de acceso",
+    preheader: "Se detectaron varios intentos de acceso a tu cuenta.",
+    children: `
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 24px;">
+        <tr>
+          <td style="padding:16px;background:#fff8f0;border-radius:8px;border:1px solid #ffe0b2;">
+            <p style="margin:0;font-size:14px;color:#1a1a1a;line-height:1.5;">
+              Se detectaron <strong>varios intentos de acceso</strong> a tu cuenta el
+              <strong>${fechaHora}</strong> aproximadamente.
+            </p>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:0 0 12px;font-size:14px;color:#666666;line-height:1.5;">
+        ${name ? `Hola <strong>${name}</strong>, ` : ""}
+        queremos asegurarnos de que no hubo actividad no autorizada en tu cuenta.
+      </p>
+      <p style="margin:0 0 12px;font-size:14px;color:#666666;line-height:1.5;">
+        Si <strong>fuiste vos</strong>, podés ignorar este mensaje.
+      </p>
+      <p style="margin:0;font-size:14px;color:#666666;line-height:1.5;">
+        Si <strong>no reconocés</strong> esta actividad, comunicate con el administrador
+        del sistema de votación.
+      </p>
+    `,
+  });
+}

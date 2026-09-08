@@ -14,12 +14,65 @@ import VotingScreen from "./VotingScreen";
 import ConfirmScreen from "./ConfirmScreen";
 import ThanksScreen from "./ThanksScreen";
 
+function parseIso(iso) {
+  return iso ? new Date(iso) : null;
+}
+
+function formatFecha(iso) {
+  const d = parseIso(iso);
+  if (!d) return "";
+  return d.toLocaleString("es-AR", {
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function mensajeEstado(noche, now) {
+  const inicio = parseIso(noche.fecha_hora_inicio);
+  const accesoInicio = parseIso(noche.acceso_inicio);
+  const accesoFin = parseIso(noche.acceso_fin);
+  const ahora = now || new Date();
+
+  switch (noche.estado_efectivo) {
+    case "finalizada":
+      return { titulo: "Noche finalizada", detalle: "Ya no se pueden registrar votos." };
+    case "abierta":
+      return {
+        titulo: "Votación abierta",
+        detalle: `Podés votar hasta ${formatFecha(noche.acceso_fin)}.`,
+        abierta: true,
+      };
+    case "publicada":
+      if (inicio && ahora < inicio) {
+        return {
+          titulo: "La votación todavía no comienza",
+          detalle: `El acceso se habilitará el ${formatFecha(noche.acceso_inicio)}.`,
+        };
+      }
+      return {
+        titulo: "Próximamente",
+        detalle: `La votación se habilita el ${formatFecha(noche.acceso_inicio)}.`,
+      };
+    default:
+      return {
+        titulo: "En preparación",
+        detalle: "La noche todavía está en borrador. Volvé más tarde.",
+      };
+  }
+}
+
 export default function Home() {
   const { data: session, isPending } = useSession();
   const navigate = useNavigate();
 
+  const [misNoches, setMisNoches] = useState([]);
+  const [nocheSeleccionadaId, setNocheSeleccionadaId] = useState(null);
+  const [noche, setNoche] = useState(null);
+
   const [comparsas, setComparsas] = useState([]);
-  const [rubrosByComparsa, setRubrosByComparsa] = useState({});
+  const [rubros, setRubros] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState(null);
 
@@ -40,31 +93,24 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    async function loadAssigned() {
+    async function loadNoches() {
       try {
-        const [assignedComparsas, assignedRubros] = await Promise.all([
-          apiFetch("/api/jurado/mis-comparsas"),
-          apiFetch("/api/jurado/mis-rubros"),
-        ]);
+        const list = await apiFetch("/api/jurado/mis-noches");
         if (cancelled) return;
-        const grouped = assignedComparsas.reduce((acc, comparsa) => {
-          acc[comparsa.id] = assignedRubros;
-          return acc;
-        }, {});
-        setComparsas(assignedComparsas);
-        setRubrosByComparsa(grouped);
-        if (assignedComparsas.length > 0) {
-          setCurrentComparsaId(assignedComparsas[0].id);
-        }
+        setMisNoches(list);
+        setNocheSeleccionadaId((prev) => {
+          if (list.some((n) => n.id === prev)) return prev;
+          const abierta = list.find((n) => n.estado_efectivo === "abierta");
+          return abierta ? abierta.id : (list[0]?.id ?? null);
+        });
       } catch (err) {
         if (!cancelled) setDataError(err.message);
       } finally {
         if (!cancelled) setDataLoading(false);
       }
     }
-
     if (session && !session.user.isAdmin) {
-      loadAssigned();
+      loadNoches();
     } else {
       setDataLoading(false);
     }
@@ -72,6 +118,36 @@ export default function Home() {
       cancelled = true;
     };
   }, [session]);
+
+  useEffect(() => {
+    if (!nocheSeleccionadaId) return;
+    let cancelled = false;
+    async function loadNoche() {
+      try {
+        const detalle = await apiFetch(`/api/jurado/noche/${nocheSeleccionadaId}`);
+        const misVotos = await apiFetch(
+          `/api/jurado/mis-votos?noche_id=${nocheSeleccionadaId}`
+        );
+        if (cancelled) return;
+        setNoche(detalle);
+        setComparsas(detalle.comparsas || []);
+        setRubros(detalle.rubros || []);
+        setConfirmed((prev) => {
+          const ids = new Set([...prev, ...misVotos.map((v) => v.id)]);
+          return [...ids];
+        });
+        if (detalle.comparsas?.length > 0) {
+          setCurrentComparsaId((prev) => prev || detalle.comparsas[0].id);
+        }
+      } catch (err) {
+        if (!cancelled) setDataError(err.message);
+      }
+    }
+    loadNoche();
+    return () => {
+      cancelled = true;
+    };
+  }, [nocheSeleccionadaId]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -101,7 +177,25 @@ export default function Home() {
   }, []);
 
   const handleConfirm = useCallback(
-    (comparsaId) => {
+    async (comparsaId) => {
+      const puntajes = rubros
+        .map((r) => ({ rubro_id: r.id, puntaje: scores[comparsaId]?.[r.id] }))
+        .filter((p) => p.puntaje != null);
+
+      try {
+        await apiFetch("/api/jurado/planilla", {
+          method: "POST",
+          body: JSON.stringify({
+            comparsa_id: comparsaId,
+            noche_id: nocheSeleccionadaId,
+            puntajes,
+          }),
+        });
+      } catch (err) {
+        // 409: la planilla ya fue confirmada en otra sesión o dispositivo.
+        if (err.status !== 409) throw err;
+      }
+
       setConfirmed((prev) => {
         if (prev.includes(comparsaId)) return prev;
         return [...prev, comparsaId];
@@ -115,7 +209,7 @@ export default function Home() {
         setView("thanks");
       }
     },
-    [comparsas]
+    [comparsas, rubros, scores, nocheSeleccionadaId]
   );
 
   const handleBackToHome = useCallback(() => {
@@ -145,7 +239,7 @@ export default function Home() {
     );
   }
 
-  if (comparsas.length === 0) {
+  if (misNoches.length === 0) {
     return (
       <div className="app">
         <Header onLogout={handleLogout} />
@@ -155,7 +249,7 @@ export default function Home() {
               {firstName ? `Bienvenido, ${firstName}` : "Bienvenido"}
             </h1>
             <div className="notice" style={{ marginTop: 18 }}>
-              Aún no tenés rubros asignados para votar. Contactá al administrador.
+              Aún no te asignaron a ninguna noche. Contactá al administrador.
             </div>
           </div>
         </main>
@@ -163,18 +257,25 @@ export default function Home() {
     );
   }
 
-  const currentComparsa =
-    comparsas.find((c) => c.id === currentComparsaId) || comparsas[0];
-  const currentRubros = rubrosByComparsa[currentComparsa.id] || [];
+  const estadoMsg = noche ? mensajeEstado(noche) : null;
+  const antesDeVotar =
+    !noche || noche.estado_efectivo !== "abierta" || comparsas.length === 0;
 
-  if (view === "vote") {
+  if (view !== "home" && view !== "confirm" && view !== "thanks" && noche?.estado_efectivo !== "abierta") {
+    // Si la ventana cambió mientras se votaba, volvemos al selector.
+    setView("home");
+  }
+
+  if (view === "vote" && noche?.estado_efectivo === "abierta") {
+    const currentComparsa =
+      comparsas.find((c) => c.id === currentComparsaId) || comparsas[0];
     return (
       <div className="app">
-        <Header onLogout={handleLogout} />
+        <Header onLogout={handleLogout} noche={noche} />
         <main className="stage">
           <ComparsaTabs
             comparsas={comparsas}
-            rubrosByComparsa={rubrosByComparsa}
+            rubrosByComparsa={rubros.length ? Object.fromEntries(comparsas.map((c) => [c.id, rubros])) : {}}
             activeId={currentComparsa.id}
             scores={scores}
             confirmed={confirmed}
@@ -186,7 +287,7 @@ export default function Home() {
           <VotingScreen
             comparsa={currentComparsa}
             comparsaCount={comparsas.length}
-            rubros={currentRubros}
+            rubros={rubros}
             scores={scores}
             onScoreChange={handleScoreChange}
             onContinue={handleContinueToConfirm}
@@ -197,14 +298,16 @@ export default function Home() {
     );
   }
 
-  if (view === "confirm") {
+  if (view === "confirm" && noche?.estado_efectivo === "abierta") {
+    const currentComparsa =
+      comparsas.find((c) => c.id === currentComparsaId) || comparsas[0];
     return (
       <div className="app">
-        <Header onLogout={handleLogout} />
+        <Header onLogout={handleLogout} noche={noche} />
         <main className="stage">
           <ConfirmScreen
             comparsa={currentComparsa}
-            rubros={currentRubros}
+            rubros={rubros}
             scores={scores}
             onConfirm={handleConfirm}
             onBack={() => setView("vote")}
@@ -217,7 +320,7 @@ export default function Home() {
   if (view === "thanks") {
     return (
       <div className="app">
-        <Header onLogout={handleLogout} />
+        <Header onLogout={handleLogout} noche={noche} />
         <main className="stage">
           <ThanksScreen onBackToHome={handleBackToHome} />
         </main>
@@ -227,37 +330,81 @@ export default function Home() {
 
   return (
     <div className="app">
-      <Header onLogout={handleLogout} />
+      <Header onLogout={handleLogout} noche={noche} />
       <main className="stage">
         <div className="wrap">
           <h1 className="screen-title">
             {firstName ? `Bienvenido, ${firstName}` : "Bienvenido"}
           </h1>
-          <p className="screen-lede">
-            Puntuá cada comparsa asignada en todos tus rubros. Tus notas se
-            guardan automáticamente.
-          </p>
 
-          <div className="event-banner">
-            <span className="bar"></span>
-            <span>
-              <div className="noche">Noche 1</div>
-              <div className="fecha">Enero 15</div>
-            </span>
+          <div className="noche-selector">
+            <p className="tabs-hint">Elegí una noche de votación:</p>
+            <div className="noche-selector-options">
+              {misNoches.map((n) => (
+                <button
+                  key={n.id}
+                  className={`noche-pill ${n.id === nocheSeleccionadaId ? "active" : ""}`}
+                  onClick={() => {
+                    setNocheSeleccionadaId(n.id);
+                    setView("home");
+                  }}
+                >
+                  {n.name}
+                  <span className="noche-pill-meta">
+                    {formatFecha(n.fecha_hora_inicio)}
+                  </span>
+                  <span className="noche-pill-progress">
+                    {n.comparsas_completadas}/{n.comparsas_total} comparsas
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
 
-          <p className="tabs-hint">Elegí una comparsa para cargar su planilla:</p>
-          <ComparsaTabs
-            comparsas={comparsas}
-            rubrosByComparsa={rubrosByComparsa}
-            activeId={null}
-            scores={scores}
-            confirmed={confirmed}
-            onSelect={(id) => {
-              setCurrentComparsaId(id);
-              setView("vote");
-            }}
-          />
+          {noche && (
+            <>
+              <div className="event-banner">
+                <span className="bar"></span>
+                <span>
+                  <div className="noche">{noche.name}</div>
+                  <div className="fecha">
+                    {formatFecha(noche.fecha_hora_inicio)}
+                    {" · "}
+                    {mensajeEstado(noche).detalle}
+                  </div>
+                </span>
+              </div>
+
+              {estadoMsg && !estadoMsg.abierta && (
+                <div className="notice" style={{ marginTop: 18 }}>
+                  <strong>{estadoMsg.titulo}:</strong> {estadoMsg.detalle}
+                </div>
+              )}
+
+              {estadoMsg?.abierta && (
+                <p className="screen-lede">
+                  Puntuá cada comparsa en tus rubros. Tus notas se guardan automáticamente.
+                </p>
+              )}
+            </>
+          )}
+
+          {noche?.estado_efectivo === "abierta" && comparsas.length > 0 && (
+            <>
+              <p className="tabs-hint">Elegí una comparsa para cargar su planilla:</p>
+              <ComparsaTabs
+                comparsas={comparsas}
+                rubrosByComparsa={Object.fromEntries(comparsas.map((c) => [c.id, rubros]))}
+                activeId={null}
+                scores={scores}
+                confirmed={confirmed}
+                onSelect={(id) => {
+                  setCurrentComparsaId(id);
+                  setView("vote");
+                }}
+              />
+            </>
+          )}
         </div>
       </main>
     </div>

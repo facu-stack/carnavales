@@ -43,7 +43,8 @@ preparada para autorización basada en roles.
 ## Modelo de datos de votación
 
 ```
-user (text PK: id) 1:N account (text PK: id) 1:N calificacion N:1 rubros
+user (text PK: id) 1:N account (text PK: id)
+user (text PK: id) 1:N calificacion N:1 rubros
 comparsas 1:N calificacion (cada calificación pertenece a una comparsa vía `calificacion.comparsa_id`)
 user (text PK: id) 1:N jurado_rubros N:1 rubros (asignación de rubros globales por jurado)
 ```
@@ -51,7 +52,9 @@ user (text PK: id) 1:N jurado_rubros N:1 rubros (asignación de rubros globales 
 - `rubros` es una lista **global** sin `comparsa_id`: los rubros elegidos por el admin se aplican a **todas** las comparsas
 - `rubros` 1:N `calificacion` (cada calificación pertenece a un rubro vía `calificacion.rubro_id`)
 - `comparsas` 1:N `calificacion` (cada calificación pertenece a una comparsa vía `calificacion.comparsa_id`)
-- `account` 1:N `calificacion` (cada calificación registra el jurado vía `calificacion.account_id`)
+- `user` 1:N `calificacion` (cada calificación registra el jurado vía `calificacion.account_id`,
+  que guarda `req.user.id`; la FK apunta a `"user"(id)`, no a `account`, porque los jurados
+  ingresan por OTP y no tienen fila en `account`)
 - `user` 1:N `jurado_rubros` (asignación de rubros globales por jurado; cada fila une
   `user_id` y `rubro_id`, con `UNIQUE (user_id, rubro_id)` y FKs ON DELETE CASCADE)
 - `calificacion.puntaje` con CHECK (1..10) y UNIQUE (account_id, comparsa_id, rubro_id, noche)
@@ -147,8 +150,9 @@ La autenticación debe utilizar Better Auth como componente principal.
 - El campo `dni` es un `additionalFields` del usuario, **solo para pruebas**
   (no hay backfill, carga ni administración funcional de DNI).
 - El envío del PIN se controla desde `POST /api/login-pin/request` (`api/src/routes/login-pin.routes.js`):
-  valida que el usuario exista y que su `dni` coincida (respuesta genérica e
-  idéntica si no existen o no coinciden, sin enumeración) y recién entonces
+  valida que el usuario exista y que su `dni` coincida; si el email no existe o el
+  DNI no coincide devuelve `400` con el **mismo mensaje** ("El email o el DNI no
+  están registrados.") en ambos casos, sin enumeración, y recién entonces
   emite el OTP de forma server-side vía `auth.api.sendVerificationOTP`.
 - **Alta de jurados por el admin** (`POST /api/admin/jurados`): se inserta el usuario en la
   tabla `user` de Better Auth (`emailVerified=false`, `dni`, `isAdmin=false`) y se envía un
@@ -283,13 +287,27 @@ siendo válido y muestra el modal a pantalla completa.
 - PostgreSQL 14+
 - pg Pool (sin ORM)
 - Better Auth crea/modifica sus tablas mediante `npm run migrate` en `api`
-- Tablas de negocio `comparsas`, `rubros`, `calificacion` y `jurado_rubros`
+- Tablas de negocio `comparsas`, `rubros`, `calificacion`, `jurado_rubros`,
+  `noches`, `asignacion_jurado`, `orden_comparsa` y `auditoria`
   mediante `npm run migrate-tables` en `api`
 - Parameterized queries (`$1, $2...`) siempre
 - Constraints, foreign keys, índices para integridad
 - No almacenar passwords en texto plano
 - Better Auth gestiona los OTP; configurar `storeOTP: "encrypted"` y no
   implementar almacenamiento o verificación manual
+- La publicación de resultados es **global** e **independiente** de la creación de
+  noches: la tabla `publicacion_resultados` guarda una fila única (`id=1`) con una
+  sola `fecha_hora TIMESTAMPTZ`; al llegar esa fecha se publican los resultados de
+  **todas** las noches. Una vez configurada no se puede cambiar (409). La fecha no
+  puede ser anterior a la hora actual ni a la finalización de ninguna noche
+  establecida (fin = `fecha_hora_inicio + 24h`). La columna legacy per-noche
+  `fecha_hora_publicacion_resultados` queda deprecada y nullable.
+- Noches vencidas (fin de disponibilidad = `fecha_hora_inicio + 24h` ya superado):
+  **no pueden eliminarse manualmente** (`DELETE /api/admin/noches/:id` → 409) y se
+  **eliminan automáticamente** una semana después de cerrarse la disponibilidad.
+  La limpieza corre al iniciar el servidor y luego cada hora
+  (`limpiarNochesFinalizadas` en `api/src/routes/noches.routes.js`, programado en
+  `api/src/server.js`).
 
 ---
 
@@ -329,6 +347,10 @@ siendo válido y muestra el modal a pantalla completa.
 | POST | /api/admin/rubros | Crear rubro |
 | PUT | /api/admin/rubros/:id | Editar rubro |
 | DELETE | /api/admin/rubros/:id | Eliminar rubro |
+| GET | /api/admin/votos | ✓ + admin | Cumplimiento de votación por jurado y comparsa. **No expone puntajes**: los resultados permanecen en secreto |
+| POST | /api/admin/resultados/publicacion | ✓ + admin | Establece la fecha de publicación **global** de resultados: `{ publicar_ahora: true }` o `{ fecha_hora }`. 400 si la fecha es anterior a la hora actual o a la finalización de alguna noche (fin = inicio + 24h); 409 si ya fue configurada (no se puede cambiar) |
+| GET | /api/admin/resultados/publicacion | ✓ + admin | Devuelve `{ configurado, fecha_hora, publicado }` de la configuración global |
+| GET | /api/admin/resultados | ✓ + admin | Resultados de **todas** las noches (promedios por rubro, total, orden desc). 403 si no está configurada o la fecha aún no llegó |
 
 ## Endpoints de jurados
 
@@ -341,6 +363,8 @@ siendo válido y muestra el modal a pantalla completa.
 | DELETE | /api/admin/jurados | ✓ + admin | Eliminar todos los jurados (usuarios `isAdmin=false`); los admins nunca se borran |
 | GET | /api/jurado/mis-rubros | ✓ | Rubros (id, nombre, rango) asignados al jurado logueado; se aplican a todas las comparsas |
 | GET | /api/jurado/mis-comparsas | ✓ | Todas las comparsas cuando el jurado tiene al menos un rubro asignado |
+| GET | /api/jurado/mis-votos | ✓ | Comparsas cuya planilla el jurado ya completó (restaura el estado `confirmed` al recargar) |
+| POST | /api/jurado/planilla | ✓ | Confirma la planilla de una comparsa (`comparsa_id`, `noche`, `puntajes`). Exige el set exacto de rubros asignados y puntajes dentro del rango del rubro; duplicado → `409` |
 
 El `dni` es un campo PII: el listado `GET /api/admin/jurados` exige `requireAdmin`
 (fail-secure), y los logs del backend nunca imprimen el DNI ni `req.body` completo.
@@ -461,8 +485,12 @@ Usar estas Skills al desarrollar, modificar o revisar código.
 - [x] Logout
 - [x] 2FA/OTP backend: habilitación, envío, verificación y sesión final
 - [x] Login PIN (email+DNI): envío, verificación, sesión y bloqueo HTTP del plugin `email-otp`
+- [x] Login PIN: error no enumerable cuando email/DNI no registrados (mismo mensaje para ambos casos)
 - [x] Admin: autorización de `/api/admin/*` (401 sin sesión, 403 sin `isAdmin`)
 - [x] Jurados: CRUD `/api/admin/jurados`, correo de bienvenida sin PIN, asignaciones, DNI/email duplicados, borrado masivo conservando admins
+- [x] Votación: `POST /api/jurado/planilla` (401/400/404/409/201), `GET /api/jurado/mis-votos`, y `GET /api/admin/votos` sin exponer puntajes
+- [x] Publicación de resultados: configuración global `POST /api/admin/resultados/publicacion` (201/400/409, 401/403), consulta `GET /api/admin/resultados/publicacion` y visibilidad en `GET /api/admin/resultados` (403 antes de la fecha, 200 tras llegar)
+- [x] Noches vencidas: `DELETE /api/admin/noches/:id` → 409 cuando la disponibilidad terminó, 200 en noches activas, y auto-eliminación tras una semana (`limpiarNochesFinalizadas`)
 
 ## Framework
 

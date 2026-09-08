@@ -77,6 +77,35 @@ router.delete("/comparsas/:id", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+// Cumplimiento de votación por jurado y comparsa. NO expone puntajes:
+// los resultados permanecen en secreto.
+router.get("/votos", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const nocheId = Number(req.query.noche_id);
+    if (!Number.isInteger(nocheId) || nocheId <= 0) {
+      return res.status(400).json({ error: "noche_id es requerido" });
+    }
+    const { rows } = await pool.query(
+      `SELECT u.id AS jurado_id, u.name AS jurado_name,
+              co.id AS comparsa_id, co.name AS comparsa_name, oc."position",
+              (SELECT COUNT(*)::int FROM jurado_rubros jr WHERE jr.user_id = u.id) AS assigned,
+              (SELECT COUNT(DISTINCT c.rubro_id)::int FROM calificacion c
+               WHERE c.account_id = u.id AND c.comparsa_id = co.id AND c.noche_id = $1) AS voted
+       FROM "user" u
+       JOIN orden_comparsa oc ON oc.noche_id = $1
+       JOIN comparsas co ON co.id = oc.comparsa_id
+       WHERE u."isAdmin" IS NOT true
+         AND EXISTS (SELECT 1 FROM asignacion_jurado aj WHERE aj.user_id = u.id AND aj.noche_id = $1)
+       ORDER BY oc."position", u.name`,
+      [nocheId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Get admin votos error:", error.message);
+    res.status(500).json({ error: "Failed to get voting status" });
+  }
+});
+
 router.get("/rubros", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT * FROM rubros ORDER BY id");

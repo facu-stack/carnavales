@@ -1534,6 +1534,96 @@ input:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- Status badges (noches) ---------- */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-borrador {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.status-publicada {
+  background: var(--accent-orange);
+  color: var(--fg);
+  opacity: .9;
+}
+
+.status-abierta {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.status-finalizada {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ---------- Orden de comparsas (drag & drop) ---------- */
+.orden-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.orden-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: grab;
+  transition: background .15s, border-color .15s;
+}
+
+.orden-item.dragging {
+  opacity: .6;
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.orden-handle {
+  color: var(--muted);
+  font-size: 18px;
+  flex: 0 0 auto;
+  cursor: grab;
+  user-select: none;
+}
+
+.orden-num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.orden-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.orden-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1px solid var(--swatch-border);
+  flex: 0 0 auto;
+}
+
 /* ---------- Utility ---------- */
 .muted { color: var(--muted); }
 .center { text-align: center; }
@@ -1580,4 +1670,76 @@ input:focus-visible {
   .screen { animation: none; }
   .rubro-panel { animation: none; }
   .clock-dot { animation: none; }
+}
+
+/* ---------- Selector de noches (jurado) ---------- */
+.noche-selector {
+  margin-top: 18px;
+}
+
+.noche-selector-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.noche-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  transition: border-color .15s, background .15s;
+}
+
+.noche-pill:hover {
+  border-color: var(--primary);
+}
+
+.noche-pill.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.noche-pill-meta {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.noche-pill-progress {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--primary);
+}
+
+/* ---------- Resultados (admin) ---------- */
+.resultados-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 18px;
+  background: var(--surface);
+}
+
+.resultados-header h3 {
+  margin: 0 0 2px;
+  font-family: var(--font-display);
+}
+
+.resultados-header p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--muted);
 }

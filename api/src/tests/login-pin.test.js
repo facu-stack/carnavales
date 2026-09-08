@@ -74,7 +74,8 @@ describe("Login with DNI and PIN", () => {
 
     const otp = await captureOtpDuring(async () => {
       const res = await requestPin(email, "99999999");
-      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.status, 400);
+      assert.strictEqual(res.body.error, "El email o el DNI no están registrados.");
     });
 
     assert.strictEqual(otp, "");
@@ -83,7 +84,8 @@ describe("Login with DNI and PIN", () => {
   it("should not send a PIN for an unknown email", async () => {
     const otp = await captureOtpDuring(async () => {
       const res = await requestPin("unknown@example.com", TEST_DNI);
-      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.status, 400);
+      assert.strictEqual(res.body.error, "El email o el DNI no están registrados.");
     });
 
     assert.strictEqual(otp, "");

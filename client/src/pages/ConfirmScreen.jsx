@@ -2,16 +2,20 @@ import { useState, useCallback } from "react";
 
 export default function ConfirmScreen({ comparsa, rubros, scores, onConfirm, onBack }) {
   const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState("");
   const comparsaScores = scores[comparsa.id] || {};
   const colors = Array.isArray(comparsa.colors) && comparsa.colors.length ? comparsa.colors : ["#ffffff"];
   const primaryColor = colors[0];
 
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback(async () => {
     setSyncing(true);
-    setTimeout(() => {
+    setError("");
+    try {
+      await onConfirm(comparsa.id);
+    } catch (err) {
       setSyncing(false);
-      onConfirm(comparsa.id);
-    }, 1600);
+      setError(err.message || "No se pudo confirmar la planilla.");
+    }
   }, [comparsa.id, onConfirm]);
 
   if (syncing) {
@@ -61,6 +65,11 @@ export default function ConfirmScreen({ comparsa, rubros, scores, onConfirm, onB
           ))}
         </div>
         <div className="notice">Una vez confirmada, no podrás modificarla.</div>
+        {error && (
+          <div className="error" role="alert">
+            {error}
+          </div>
+        )}
       </div>
       <div className="foot-actions mt">
         <button className="btn btn-danger" onClick={onBack}>

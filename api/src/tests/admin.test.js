@@ -8,7 +8,7 @@ test("Admin routes", async () => {
     assert.equal(res.status, 401);
   });
 
-  test("should reject non-admin authenticated users", async () => {
+  test("should allow authenticated users to GET comparsas but reject mutations for non-admin", async () => {
     const email = generateEmail();
     const password = "Str0ngPass!";
 
@@ -16,8 +16,16 @@ test("Admin routes", async () => {
     const loginRes = await login(email, password);
     assert.equal(loginRes.status, 200);
 
+    // GET de comparsas requiere solo autenticación (por diseño documentado).
     const res = await request("GET", "/api/admin/comparsas", null, loginRes.cookies);
-    assert.equal(res.status, 403);
+    assert.equal(res.status, 200);
+
+    // Las mutaciones exigen admin -> 403.
+    const create = await request("POST", "/api/admin/comparsas", {
+      name: "Hacker",
+      colors: [],
+    }, loginRes.cookies);
+    assert.equal(create.status, 403);
   });
 
   test("should deny CREATE/UPDATE/DELETE for non-admin users", async () => {

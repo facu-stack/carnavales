@@ -17,25 +17,28 @@ Aymara, Tropical, Ita Vera, Arami, Oh Bahía, Poramba.
 
 ## Endpoints a implementar
 ### Público / jurado
-- `GET /comparsas` — lista de comparsas activas.
-- `GET /categorias` — lista de rubros/categorías activas, ordenadas.
-- `POST /votos` — registrar o actualizar una nota (`comparsa_id`, `categoria_id`, `nota` entre 1 y 10).
-- `GET /votos/:jurado_id` — recuperar el progreso de votación de un jurado (para saber qué falta cargar).
+- `GET /api/admin/comparsas` — lista de comparsas activas (autenticado).
+- `GET /api/admin/rubros` — lista global de rubros/categorías activas, ordenadas (autenticado).
+- `POST /api/login-pin/request` — envía el PIN por email (email + DNI); `400` idéntico si el email no existe o el DNI no coincide (sin enumeración).
+- `GET /api/jurado/mis-rubros` — rubros asignados al jurado logueado (se aplican a todas las comparsas).
+- `GET /api/jurado/mis-comparsas` — todas las comparsas cuando el jurado tiene al menos un rubro asignado.
+- `GET /api/jurado/mis-votos` — comparsas cuya planilla el jurado ya completó (restaura `confirmed`).
+- `POST /api/jurado/planilla` — confirma la planilla de una comparsa (`comparsa_id`, `noche`=1, `puntajes: [{rubro_id, puntaje}]`). Exige el set exacto de rubros asignados y puntajes dentro del rango del rubro (1 a 10); duplicado → `409`.
 
-### Administración (protegido)
-- `POST /admin/comparsas` — crear comparsa.
-- `PUT /admin/comparsas/:id` — editar comparsa.
-- `DELETE /admin/comparsas/:id` — eliminar/desactivar comparsa.
-- `POST /admin/categorias` — crear categoría/rubro.
-- `PUT /admin/categorias/:id` — editar categoría.
-- `DELETE /admin/categorias/:id` — eliminar/desactivar categoría.
-- `GET /admin/resultados` — consolidado de votos por comparsa/categoría (para totales o exportación).
+### Administración (protegido, `requireAuth` + `requireAdmin`)
+- `POST /api/admin/comparsas` — crear comparsa.
+- `PUT /api/admin/comparsas/:id` — editar comparsa.
+- `DELETE /api/admin/comparsas/:id` — eliminar/desactivar comparsa.
+- `POST /api/admin/rubros` — crear rubro.
+- `PUT /api/admin/rubros/:id` — editar rubro.
+- `DELETE /api/admin/rubros/:id` — eliminar rubro.
+- `GET /api/admin/votos` — **solo cumplimiento** por jurado y comparsa (`assigned`/`voted`). **No expone puntajes**: los resultados permanecen en secreto.
 
 ## Reglas de negocio clave
-- La **nota** siempre debe validarse en el rango **1 a 10** (entero), rechazando cualquier otro valor.
-- No debe existir lógica de temporizador/tiempo límite en el backend (el frontend ya no lo usa; no agregar restricciones de tiempo en la API).
-- Los endpoints de admin deben estar protegidos por autenticación/autorización (definir junto con el equipo si es login simple, token, etc.).
-- Evitar votos duplicados por el mismo jurado/comparsa/categoría: si ya existe, el `POST /votos` debe actualizar en vez de duplicar.
+- La **nota** siempre debe validarse en el rango del rubro y **1 a 10** (entero), rechazando cualquier otro valor.
+- Una planilla es **inmutable**: `POST /api/jurado/planilla` inserta con `ON CONFLICT DO NOTHING`; si alguna fila ya existía → `409` (no actualiza ni duplica).
+- No debe existir lógica de temporizador/tiempo límite en el backend.
+- `calificacion.account_id` guarda `req.user.id` y su FK apunta a `"user"(id)`, no a `account` (los jurados ingresan por OTP).
 
 ## Responsabilidades técnicas
 - Definir esquema de base de datos (elegir motor: PostgreSQL/MySQL/Mongo según lo que decida el equipo) y migraciones/seeds iniciales con las comparsas listadas arriba.

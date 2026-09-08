@@ -19,13 +19,6 @@ export function resetOtpSent() {
   globalThis[COOLDOWN_KEY] = 0;
 }
 
-function getServerError(error) {
-  if (error?.status === 429 || error?.statusCode === 429) {
-    return "Demasiados intentos. Espera un momento antes de volver a intentar.";
-  }
-  return error;
-}
-
 export default function VerifyCode() {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -65,7 +58,12 @@ export default function VerifyCode() {
       });
 
       if (!res.ok) {
-        setError(getServerError({ status: res.status }));
+        const body = await res.json().catch(() => ({}));
+        setError(
+          res.status === 429
+            ? "Demasiados intentos. Espera un momento antes de volver a intentar."
+            : body.error || "No se pudo enviar el PIN."
+        );
         return;
       }
 
