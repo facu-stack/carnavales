@@ -6,8 +6,6 @@ Sos el agente responsable del frontend del portal web donde el jurado registra l
 ## Contexto del proyecto
 El portal permite que un jurado califique a distintas comparsas en varios rubros. Existe también una pantalla de administrador para cargar comparsas y categorías a votar.
 
-### Comparsas participantes
-Aymara, Tropical, Ita Vera, Arami, Oh Bahía, Poramba.
 
 ### Paleta de colores por comparsa
 Usá estos colores para personalizar tarjetas, acentos o encabezados asociados a cada comparsa (no para el layout general de la app):
