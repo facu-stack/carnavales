@@ -3,7 +3,10 @@ import Login from "../pages/Login";
 import VerifyCode from "../pages/VerifyCode";
 import Home from "../pages/Home";
 import Admin from "../pages/Admin";
+import ComisarioPanel from "../pages/ComisarioPanel";
+import EscribanoPanel from "../pages/EscribanoPanel";
 import ProtectedRoute from "../components/ProtectedRoute";
+import RoleRoute from "../components/RoleRoute";
 import ForgotPassword from "../pages/ForgotPassword";
 import ResetPassword from "../pages/ResetPassword";
 import Modal from "../components/Modal";
@@ -61,7 +64,29 @@ function AppRoutes() {
           path="/home"
           element={
             <ProtectedRoute>
-              <Home />
+              <RoleRoute allowedRoles={["jurado", "admin"]}>
+                <Home />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/comisario"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allowedRoles={["comisario", "admin"]}>
+                <ComisarioPanel />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/escribano"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allowedRoles={["escribano", "admin"]}>
+                <EscribanoPanel />
+              </RoleRoute>
             </ProtectedRoute>
           }
         />
@@ -69,7 +94,9 @@ function AppRoutes() {
           path="/admin"
           element={
             <ProtectedRoute>
-              <Admin />
+              <RoleRoute allowedRoles={["admin"]}>
+                <Admin />
+              </RoleRoute>
             </ProtectedRoute>
           }
         />

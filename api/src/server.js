@@ -11,8 +11,11 @@ import protectedRoutes from "./routes/protected.routes.js";
 import loginPinRoutes from "./routes/login-pin.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import adminUsersRoutes from "./routes/admin-users.routes.js";
+import adminIncidenciasRoutes from "./routes/admin-incidencias.routes.js";
 import juradoRoutes from "./routes/jurado.routes.js";
 import juradoNocheRoutes from "./routes/jurado-noche.routes.js";
+import comisarioRoutes from "./routes/comisario.routes.js";
+import escribanoRoutes from "./routes/escribano.routes.js";
 import nochesRoutes, { limpiarNochesFinalizadas } from "./routes/noches.routes.js";
 
 const PORT = process.env.PORT || 3000;
@@ -84,9 +87,12 @@ export function createApp({ rateLimitEnabled = true, authRateLimitMax = 10 } = {
   app.use("/api", loginPinRoutes);
   app.use("/api", juradoRoutes);
   app.use("/api", juradoNocheRoutes);
+  app.use("/api/comisario", comisarioRoutes);
+  app.use("/api/escribano", escribanoRoutes);
   app.use("/api/admin", nochesRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/admin", adminUsersRoutes);
+  app.use("/api/admin", adminIncidenciasRoutes);
 
   app.use((err, req, res, next) => {
     console.error("Unexpected error:", err);

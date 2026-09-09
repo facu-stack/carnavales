@@ -326,6 +326,109 @@ async function migrate() {
       console.log("Migrated calificacion.noche -> calificacion.noche_id.");
     }
 
+    // ============================================================
+    // 4. RBAC: role en "user" + tablas de incidencias/controles/actas
+    // ============================================================
+
+    // ---- role en "user" ----
+    if (await columnExists(client, '"user"', "role")) {
+      // Ya existe la columna, solo asegurar CHECK constraint
+      const { rows: hasCheck } = await client.query(
+        `SELECT 1 FROM pg_constraint WHERE conname = 'user_role_check' AND conrelid = '"user"'::regclass`
+      );
+      if (hasCheck.length === 0) {
+        await client.query(`
+          ALTER TABLE "user"
+            ADD CONSTRAINT user_role_check
+            CHECK (role IN ('jurado','comisario','escribano','admin'))
+        `);
+        console.log("Added user_role_check constraint.");
+      }
+    } else {
+      // Agregar columna role con default
+      await client.query(`ALTER TABLE "user" ADD COLUMN role VARCHAR(20) DEFAULT 'jurado'`);
+      await client.query(`
+        ALTER TABLE "user"
+          ADD CONSTRAINT user_role_check
+          CHECK (role IN ('jurado','comisario','escribano','admin'))
+      `);
+      console.log("Added role column to user.");
+    }
+
+    // Backfill: admins existentes → role='admin'
+    await client.query(`UPDATE "user" SET role = 'admin' WHERE "isAdmin" = true AND (role IS NULL OR role = 'jurado')`);
+
+    // Backfill: resto sin role → 'jurado'
+    await client.query(`UPDATE "user" SET role = 'jurado' WHERE role IS NULL`);
+
+    // ---- infracciones (catálogo reglamentario) ----
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS infracciones (
+        id SERIAL PRIMARY KEY,
+        codigo VARCHAR(50) NOT NULL UNIQUE,
+        nombre VARCHAR(255) NOT NULL,
+        descripcion TEXT,
+        sancion_default VARCHAR(255),
+        puntos_descuento INTEGER DEFAULT 0,
+        activa BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    // ---- incidencias ----
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS incidencias (
+        id SERIAL PRIMARY KEY,
+        noche_id INTEGER NOT NULL REFERENCES noches(id) ON DELETE CASCADE,
+        comparsa_id INTEGER NOT NULL REFERENCES comparsas(id) ON DELETE CASCADE,
+        comisario_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+        tipo VARCHAR(50) NOT NULL CHECK (tipo IN ('reglamentaria','no_reglamentaria')),
+        infraccion_id INTEGER REFERENCES infracciones(id) ON DELETE SET NULL,
+        evidencia TEXT,
+        observaciones TEXT,
+        estado VARCHAR(30) NOT NULL DEFAULT 'pendiente'
+          CHECK (estado IN ('pendiente','en_revision','resuelta','rechazada')),
+        sancion_aplicada JSONB,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await ensureIndex(client, "idx_incidencias_noche_id", "incidencias", "noche_id");
+    await ensureIndex(client, "idx_incidencias_comisario_id", "incidencias", "comisario_id");
+    await ensureIndex(client, "idx_incidencias_estado", "incidencias", "estado");
+
+    // ---- controles (horario, integrantes) ----
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS controles (
+        id SERIAL PRIMARY KEY,
+        noche_id INTEGER NOT NULL REFERENCES noches(id) ON DELETE CASCADE,
+        comparsa_id INTEGER NOT NULL REFERENCES comparsas(id) ON DELETE CASCADE,
+        comisario_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+        tipo VARCHAR(50) NOT NULL CHECK (tipo IN ('horario','integrantes','otro')),
+        valor VARCHAR(255),
+        observaciones TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await ensureIndex(client, "idx_controles_noche_id", "controles", "noche_id");
+    await ensureIndex(client, "idx_controles_comisario_id", "controles", "comisario_id");
+
+    // ---- actas ----
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS actas (
+        id SERIAL PRIMARY KEY,
+        noche_id INTEGER NOT NULL REFERENCES noches(id) ON DELETE CASCADE,
+        tipo VARCHAR(50) NOT NULL CHECK (tipo IN ('votacion','incidencia','general')),
+        contenido JSONB NOT NULL DEFAULT '{}',
+        estado VARCHAR(30) NOT NULL DEFAULT 'borrador'
+          CHECK (estado IN ('borrador','generada','certificada')),
+        certificada_por TEXT REFERENCES "user"(id) ON DELETE SET NULL,
+        certificada_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await ensureIndex(client, "idx_actas_noche_id", "actas", "noche_id");
+
     console.log("Migration complete.");
   } catch (error) {
     console.error("Migration failed:", error.message);
@@ -419,9 +522,10 @@ async function seedRubros(client) {
 }
 
 async function columnExists(client, table, column) {
+  const normalizedTable = table.replace(/"/g, "");
   const { rows } = await client.query(
     `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
-    [table, column]
+    [normalizedTable, column]
   );
   return rows.length > 0;
 }

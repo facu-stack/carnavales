@@ -37,6 +37,11 @@ export const auth = betterAuth({
         required: false,
         defaultValue: false,
       },
+      role: {
+        type: "string",
+        required: false,
+        defaultValue: "jurado",
+      },
     },
   },
   trustedOrigins: [process.env.FRONTEND_URL],

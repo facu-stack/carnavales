@@ -86,12 +86,6 @@ export default function Home() {
   }, [scores, confirmed]);
 
   useEffect(() => {
-    if (session?.user?.isAdmin) {
-      navigate("/admin", { replace: true });
-    }
-  }, [session, navigate]);
-
-  useEffect(() => {
     let cancelled = false;
     async function loadNoches() {
       try {

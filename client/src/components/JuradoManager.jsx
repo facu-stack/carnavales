@@ -7,11 +7,18 @@ export default function JuradoManager({ apiFetch, rubros }) {
 
   const [showForm, setShowForm] = useState(false);
   const [editingJurado, setEditingJurado] = useState(null);
-  const [form, setForm] = useState({ name: "", email: "", dni: "" });
+  const [form, setForm] = useState({ name: "", email: "", dni: "", role: "jurado" });
   const [formRubros, setFormRubros] = useState([]);
 
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [actionError, setActionError] = useState(null);
+
+  const ROLE_LABELS = {
+    jurado: "Jurado",
+    comisario: "Comisario",
+    escribano: "Escribano",
+    admin: "Admin",
+  };
 
   const fetchJurados = useCallback(async () => {
     try {
@@ -35,7 +42,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
   }, [fetchJurados]);
 
   const resetForm = () => {
-    setForm({ name: "", email: "", dni: "" });
+    setForm({ name: "", email: "", dni: "", role: "jurado" });
     setFormRubros([]);
     setEditingJurado(null);
     setActionError(null);
@@ -52,6 +59,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
       name: jurado.name || "",
       email: jurado.email,
       dni: jurado.dni || "",
+      role: jurado.role || "jurado",
     });
     setFormRubros((jurado.asignaciones || []).map((a) => a.rubro_id));
     setShowForm(true);
@@ -81,6 +89,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
       email: form.email.trim().toLowerCase(),
       dni: form.dni.trim(),
       rubros_ids: formRubros,
+      role: form.role,
     };
 
     try {
@@ -198,6 +207,18 @@ export default function JuradoManager({ apiFetch, rubros }) {
                 inputMode="numeric"
               />
             </div>
+            <div className="admin-field">
+              <label>Rol</label>
+              <select
+                value={form.role}
+                onChange={(e) => setForm({ ...form, role: e.target.value })}
+                style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--border)", width: "100%" }}
+              >
+                <option value="jurado">Jurado</option>
+                <option value="comisario">Comisario</option>
+                <option value="escribano">Escribano</option>
+              </select>
+            </div>
           </div>
 
           <div>
@@ -244,6 +265,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
               <th>Nombre</th>
               <th>Email</th>
               <th>DNI</th>
+              <th>Rol</th>
               <th>Asignaciones</th>
               <th style={{ width: 130 }}>Acciones</th>
             </tr>
@@ -254,6 +276,19 @@ export default function JuradoManager({ apiFetch, rubros }) {
                 <td>{j.name || "—"}</td>
                 <td>{j.email}</td>
                 <td>{j.dni || "—"}</td>
+                <td>
+                  <span
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: "var(--surface-3)",
+                    }}
+                  >
+                    {ROLE_LABELS[j.role] || j.role || "Jurado"}
+                  </span>
+                </td>
                 <td style={{ fontSize: 13 }}>{asignacionesSummary(j)}</td>
                 <td>
                   <div className="admin-actions">
@@ -269,7 +304,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
             ))}
             {jurados.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>
+                <td colSpan={6} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>
                   No hay jurados cargados.
                 </td>
               </tr>
@@ -284,8 +319,8 @@ export default function JuradoManager({ apiFetch, rubros }) {
             <div className="modal-content" style={{ maxWidth: 420 }}>
               <h2 style={{ marginTop: 0 }}>Eliminar todos los jurados</h2>
               <p>
-                Esta acción <strong>eliminará definitivamente</strong> todos los jurados
-                (todos los usuarios que no son administradores), junto con sus asignaciones,
+                Esta acción <strong>eliminará definitivamente</strong> todos los usuarios
+                no administradores (jurados, comisarios y escribanos), junto con sus asignaciones,
                 sesiones y votos registrados. <strong>No se puede deshacer.</strong>
               </p>
               <p style={{ color: "var(--muted)", fontSize: 14 }}>

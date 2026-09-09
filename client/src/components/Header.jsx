@@ -20,11 +20,44 @@ function MoonIcon() {
   );
 }
 
+const ROLE_LABELS = {
+  admin: "Administración",
+  comisario: "Comisario",
+  escribano: "Escribano / Veedor",
+  jurado: "Jurado oficial",
+};
+
+const ROLE_NAV = {
+  admin: [
+    { path: "/admin", label: "Inicio" },
+    { path: "/admin#usuarios", label: "Usuarios" },
+    { path: "/admin#comparsas", label: "Comparsas" },
+    { path: "/admin#rubros", label: "Rubros" },
+    { path: "/admin#noches", label: "Noches" },
+    { path: "/admin#infracciones", label: "Infracciones" },
+    { path: "/admin#incidencias", label: "Incidencias" },
+    { path: "/admin#actas", label: "Actas" },
+  ],
+  comisario: [
+    { path: "/comisario", label: "Inicio" },
+  ],
+  escribano: [
+    { path: "/escribano", label: "Inicio" },
+  ],
+  jurado: [
+    { path: "/home", label: "Inicio" },
+  ],
+};
+
 export default function Header({ onLogout }) {
   const { data: session } = useSession();
   const [theme, toggleTheme] = useTheme();
   const [online, setOnline] = useState(true);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  const role = session?.user?.role || "jurado";
+  const brandSub = ROLE_LABELS[role] || "Jurado oficial";
+  const navItems = ROLE_NAV[role] || ROLE_NAV.jurado;
 
   const handleToggleConnection = useCallback(() => {
     setOnline((prev) => !prev);
@@ -56,9 +89,21 @@ export default function Header({ onLogout }) {
           <span className="brand-mark">C</span>
           <span>
             <div className="brand-name">Carnaval</div>
-            <div className="brand-sub">Jurado oficial</div>
+            <div className="brand-sub">{brandSub}</div>
           </span>
         </div>
+        <nav style={{ display: "flex", gap: 4, marginLeft: 16 }}>
+          {navItems.map((item) => (
+            <Link
+              key={item.path}
+              className="btn btn-ghost btn-sm"
+              to={item.path}
+              style={{ textDecoration: "none", fontSize: 13 }}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
         <div className="topbar-spacer"></div>
         <div className="top-status">
           <button
@@ -78,11 +123,6 @@ export default function Header({ onLogout }) {
           >
             {isDark ? <SunIcon /> : <MoonIcon />}
           </button>
-          {session?.user?.isAdmin && (
-            <Link className="btn btn-ghost btn-sm" to="/admin" style={{ textDecoration: "none" }}>
-              Admin
-            </Link>
-          )}
           <div className="user-chip" onClick={handleUserChipClick} style={{ cursor: "pointer" }}>
             <span>{firstName}</span>
             <span className="user-avatar">{avatarLetter}</span>

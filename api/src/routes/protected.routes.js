@@ -13,6 +13,7 @@ router.get("/me", requireAuth, async (req, res) => {
       email: req.user.email,
       name: req.user.name || "",
       isAdmin: req.user.isAdmin === true,
+      role: req.user.role || "jurado",
     },
   });
 });

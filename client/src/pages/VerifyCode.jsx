@@ -106,7 +106,27 @@ export default function VerifyCode() {
       }
 
       resetOtpSent();
-      navigate("/home");
+
+      try {
+        const meRes = await fetch(`${API_BASE}/api/me`, {
+          credentials: "include",
+        });
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          const role = meData?.user?.role || "jurado";
+          const rolePaths = {
+            admin: "/admin",
+            comisario: "/comisario",
+            escribano: "/escribano",
+            jurado: "/home",
+          };
+          navigate(rolePaths[role] || "/home");
+        } else {
+          navigate("/home");
+        }
+      } catch {
+        navigate("/home");
+      }
     } catch (err) {
       setError("Error de conexión. Intenta de nuevo.");
     } finally {

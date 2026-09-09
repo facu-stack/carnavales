@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { requireAdmin } from "../middleware/admin.middleware.js";
+import { VALID_ROLES } from "../auth/permissions.js";
 import { emailService } from "../services/email.service.js";
 import { juradoAccesoEmail } from "../services/email-templates.js";
 
@@ -30,6 +31,7 @@ const createJuradoSchema = z.object({
   email: z.string().trim().toLowerCase().email("Email invalido"),
   dni: dniSchema,
   rubros_ids: rubrosIdsSchema.default([]),
+  role: z.enum(VALID_ROLES).default("jurado"),
 });
 
 const updateJuradoSchema = z.object({
@@ -37,6 +39,7 @@ const updateJuradoSchema = z.object({
   email: z.string().trim().toLowerCase().email("Email invalido").optional(),
   dni: dniSchema.optional(),
   rubros_ids: rubrosIdsSchema.optional(),
+  role: z.enum(VALID_ROLES).optional(),
 });
 
 async function userExistsByEmail(client, email, excludeUserId = null) {
@@ -93,7 +96,7 @@ async function replaceRubros(client, userId, rubrosIds) {
 
 async function getJuradoWithAsignaciones(userId) {
   const { rows: user } = await pool.query(
-    `SELECT id, name, email, dni, "createdAt" FROM "user" WHERE id = $1`,
+    `SELECT id, name, email, dni, "isAdmin", role, "createdAt" FROM "user" WHERE id = $1`,
     [userId]
   );
   if (user.length === 0) return null;
@@ -112,6 +115,8 @@ async function getJuradoWithAsignaciones(userId) {
     name: user[0].name || "",
     email: user[0].email,
     dni: user[0].dni || "",
+    isAdmin: user[0].isAdmin === true,
+    role: user[0].role || "jurado",
     createdAt: user[0].createdAt,
     asignaciones: rubros,
   };
@@ -134,12 +139,90 @@ router.get("/jurados", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+router.get("/usuarios", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email, dni, "isAdmin", role, "createdAt" FROM "user" ORDER BY "createdAt" DESC`
+    );
+    const usuarios = [];
+    for (const row of rows) {
+      const { rows: rubros } = await pool.query(
+        `SELECT r.id AS rubro_id, r.name AS rubro_name, r.min_score, r.max_score
+         FROM jurado_rubros jr
+         JOIN rubros r ON r.id = jr.rubro_id
+         WHERE jr.user_id = $1
+         ORDER BY r.id`,
+        [row.id]
+      );
+      usuarios.push({
+        id: row.id,
+        name: row.name || "",
+        email: row.email,
+        dni: row.dni || "",
+        isAdmin: row.isAdmin === true,
+        role: row.role || "jurado",
+        createdAt: row.createdAt,
+        asignaciones: rubros,
+      });
+    }
+    res.json(usuarios);
+  } catch (error) {
+    console.error("Get usuarios error:", error.message);
+    res.status(500).json({ error: "Failed to get usuarios" });
+  }
+});
+
+router.put("/usuarios/:userId/rol", requireAuth, requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const { role } = req.body;
+
+  if (!role || !VALID_ROLES.includes(role)) {
+    return res.status(400).json({ error: "Rol invalido" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows: existing } = await client.query(
+      `SELECT id, "isAdmin", role FROM "user" WHERE id = $1 LIMIT 1`,
+      [userId]
+    );
+    if (existing.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    if (existing[0].id === req.user.id) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "No puedes cambiar tu propio rol" });
+    }
+
+    const newIsAdmin = role === "admin";
+    await client.query(
+      `UPDATE "user" SET role = $1, "isAdmin" = $2 WHERE id = $3`,
+      [role, newIsAdmin, userId]
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Update role error:", error.message);
+    return res.status(500).json({ error: "Failed to update role" });
+  } finally {
+    client.release();
+  }
+
+  const user = await getJuradoWithAsignaciones(userId);
+  res.json(user);
+});
+
 router.post("/jurados", requireAuth, requireAdmin, async (req, res) => {
   const parsed = createJuradoSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Datos invalidos" });
   }
-  const { name, email, dni, rubros_ids } = parsed.data;
+  const { name, email, dni, rubros_ids, role } = parsed.data;
 
   const client = await pool.connect();
   try {
@@ -161,10 +244,12 @@ router.post("/jurados", requireAuth, requireAdmin, async (req, res) => {
     }
 
     const userId = randomUUID();
+    const userRole = role || "jurado";
+    const isUserAdmin = userRole === "admin";
     await client.query(
-      `INSERT INTO "user" (id, name, email, "emailVerified", dni, "isAdmin")
-       VALUES ($1, $2, $3, false, $4, false)`,
-      [userId, name || "", email, dni]
+      `INSERT INTO "user" (id, name, email, "emailVerified", dni, "isAdmin", role)
+       VALUES ($1, $2, $3, false, $4, $5, $6)`,
+      [userId, name || "", email, dni, isUserAdmin, userRole]
     );
 
     await replaceRubros(client, userId, rubros_ids);
@@ -268,6 +353,14 @@ router.put("/jurados/:userId", requireAuth, requireAdmin, async (req, res) => {
       await replaceRubros(client, userId, updates.rubros_ids);
     }
 
+    if (updates.role !== undefined) {
+      const newIsAdmin = updates.role === "admin";
+      await client.query(
+        `UPDATE "user" SET role = $1, "isAdmin" = $2 WHERE id = $3`,
+        [updates.role, newIsAdmin, userId]
+      );
+    }
+
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -289,14 +382,14 @@ router.delete("/jurados/:userId", requireAuth, requireAdmin, async (req, res) =>
     await client.query("BEGIN");
 
     const { rows: existing } = await client.query(
-      `SELECT id, "isAdmin" FROM "user" WHERE id = $1 LIMIT 1`,
+      `SELECT id, "isAdmin", role FROM "user" WHERE id = $1 LIMIT 1`,
       [userId]
     );
     if (existing.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Jurado not found" });
     }
-    if (existing[0].isAdmin === true) {
+    if (existing[0].isAdmin === true || existing[0].role === "admin") {
       await client.query("ROLLBACK");
       return res.status(400).json({ error: "No se puede eliminar un administrador" });
     }
@@ -328,15 +421,15 @@ router.delete("/jurados", requireAuth, requireAdmin, async (req, res) => {
     await client.query("BEGIN");
 
     await client.query(
-      `DELETE FROM session WHERE "userId" IN (SELECT id FROM "user" WHERE "isAdmin" IS NOT true)`
+      `DELETE FROM session WHERE "userId" IN (SELECT id FROM "user" WHERE role != 'admin' AND "isAdmin" IS NOT true)`
     );
     await client.query(
-      `DELETE FROM account WHERE "userId" IN (SELECT id FROM "user" WHERE "isAdmin" IS NOT true)`
+      `DELETE FROM account WHERE "userId" IN (SELECT id FROM "user" WHERE role != 'admin' AND "isAdmin" IS NOT true)`
     );
     await client.query(
-      `DELETE FROM jurado_rubros WHERE user_id IN (SELECT id FROM "user" WHERE "isAdmin" IS NOT true)`
+      `DELETE FROM jurado_rubros WHERE user_id IN (SELECT id FROM "user" WHERE role != 'admin' AND "isAdmin" IS NOT true)`
     );
-    const result = await client.query(`DELETE FROM "user" WHERE "isAdmin" IS NOT true`);
+    const result = await client.query(`DELETE FROM "user" WHERE role != 'admin' AND "isAdmin" IS NOT true`);
 
     await client.query("COMMIT");
 
