@@ -103,8 +103,14 @@ export default function EscribanoPanel() {
 
   if (isPending || loading) {
     return (
-      <div className="container" style={{ padding: "40px 20px", textAlign: "center" }}>
-        Cargando panel del escribano...
+      <div className="app">
+        <Header onLogout={handleLogout} />
+        <main className="stage">
+          <div className="wrap">
+            <h1 className="screen-title">Panel de Escribano / Veedor</h1>
+            <p className="screen-lede">Cargando panel del escribano...</p>
+          </div>
+        </main>
       </div>
     );
   }
@@ -121,15 +127,12 @@ export default function EscribanoPanel() {
   const planillasConfirmadas = planillasFiltradas.filter((p) => p.estado_planilla === "confirmada").length;
 
   return (
-    <div className="container" style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+    <div className="app">
       <Header onLogout={handleLogout} />
-
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: 28, marginBottom: 8 }}>
-        Panel de Escribano / Veedor
-      </h1>
-      <p style={{ color: "var(--muted)", marginBottom: 24 }}>
-        Supervisa el proceso de votación y certifica actas.
-      </p>
+      <main className="stage">
+        <div className="wrap" style={{ maxWidth: 900 }}>
+          <h1 className="screen-title">Panel de Escribano / Veedor</h1>
+          <p className="screen-lede">Supervisa el proceso de votación y certifica actas.</p>
 
       {error && (
         <div className="card" style={{ padding: 16, marginBottom: 16, borderLeft: "4px solid var(--danger)" }}>
@@ -455,6 +458,8 @@ export default function EscribanoPanel() {
           </table>
         </div>
       )}
+        </div>
+      </main>
     </div>
   );
 }

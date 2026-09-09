@@ -183,7 +183,11 @@ export default function VerifyCode() {
           />
         </div>
         {error && <div className="error">{error}</div>}
-        <button type="submit" disabled={loading || code.length !== 6}>
+        <button
+          type="submit"
+          disabled={loading || code.length !== 6}
+          style={{ height: "56px", width: "60%", padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto" }}
+        >
           {loading ? "Verificando..." : "Verificar PIN"}
         </button>
       </form>

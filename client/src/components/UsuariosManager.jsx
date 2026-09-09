@@ -1,50 +1,46 @@
 import { useState, useEffect, useCallback } from "react";
 
-export default function JuradoManager({ apiFetch, rubros }) {
-  const [jurados, setJurados] = useState([]);
+const ROLE_LABELS = {
+  jurado: "Jurado",
+  comisario: "Comisario",
+  escribano: "Escribano",
+  admin: "Admin",
+};
+
+export default function UsuariosManager({ apiFetch, rubros, currentUserId }) {
+  const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const [showForm, setShowForm] = useState(false);
-  const [editingJurado, setEditingJurado] = useState(null);
+  const [editingUser, setEditingUser] = useState(null);
   const [form, setForm] = useState({ name: "", email: "", dni: "", role: "jurado" });
   const [formRubros, setFormRubros] = useState([]);
 
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [actionError, setActionError] = useState(null);
 
-  const ROLE_LABELS = {
-    jurado: "Jurado",
-    comisario: "Comisario",
-    escribano: "Escribano",
-    admin: "Admin",
-  };
-
-  const fetchJurados = useCallback(async () => {
+  const fetchUsuarios = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiFetch("/api/admin/jurados");
-      setJurados(data);
+      const data = await apiFetch("/api/admin/usuarios");
+      setUsuarios(data);
     } catch (err) {
-      if (err.message && err.message.includes("Admin access required")) {
-        setError("Solo los administradores pueden gestionar jurados.");
-      } else {
-        setError(err.message);
-      }
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   }, [apiFetch]);
 
   useEffect(() => {
-    fetchJurados();
-  }, [fetchJurados]);
+    fetchUsuarios();
+  }, [fetchUsuarios]);
 
   const resetForm = () => {
     setForm({ name: "", email: "", dni: "", role: "jurado" });
     setFormRubros([]);
-    setEditingJurado(null);
+    setEditingUser(null);
     setActionError(null);
   };
 
@@ -53,15 +49,15 @@ export default function JuradoManager({ apiFetch, rubros }) {
     setShowForm(true);
   };
 
-  const openEdit = (jurado) => {
-    setEditingJurado(jurado);
+  const openEdit = (user) => {
+    setEditingUser(user);
     setForm({
-      name: jurado.name || "",
-      email: jurado.email,
-      dni: jurado.dni || "",
-      role: jurado.role || "jurado",
+      name: user.name || "",
+      email: user.email,
+      dni: user.dni || "",
+      role: user.role || "jurado",
     });
-    setFormRubros((jurado.asignaciones || []).map((a) => a.rubro_id));
+    setFormRubros((user.asignaciones || []).map((a) => a.rubro_id));
     setShowForm(true);
     setActionError(null);
   };
@@ -72,6 +68,18 @@ export default function JuradoManager({ apiFetch, rubros }) {
         ? prev.filter((id) => id !== rubroId)
         : [...prev, rubroId]
     );
+  };
+
+  const handleChangeRol = async (userId, role) => {
+    try {
+      const updated = await apiFetch(`/api/admin/usuarios/${userId}/rol`, {
+        method: "PUT",
+        body: JSON.stringify({ role }),
+      });
+      setUsuarios((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    } catch (err) {
+      setActionError(err.message);
+    }
   };
 
   const handleSave = async () => {
@@ -93,24 +101,24 @@ export default function JuradoManager({ apiFetch, rubros }) {
     };
 
     try {
-      if (editingJurado) {
-        const updated = await apiFetch(`/api/admin/jurados/${editingJurado.id}`, {
+      if (editingUser) {
+        const updated = await apiFetch(`/api/admin/jurados/${editingUser.id}`, {
           method: "PUT",
           body: JSON.stringify(payload),
         });
-        setJurados((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
+        setUsuarios((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       } else {
         const created = await apiFetch("/api/admin/jurados", {
           method: "POST",
           body: JSON.stringify(payload),
         });
-        setJurados((prev) => [created, ...prev]);
+        setUsuarios((prev) => [created, ...prev]);
         if (created.emailSent) {
-          window.alert("Jurado creado. Se envió el correo de bienvenida.");
+          window.alert("Usuario creado. Se envió el correo de bienvenida.");
         } else {
           window.alert(
-            `Jurado creado, pero ${created.emailError || "no se pudo enviar el correo de bienvenida"}.` +
-            " El jurado puede solicitar su PIN desde la pantalla de inicio de sesión."
+            `Usuario creado, pero ${created.emailError || "no se pudo enviar el correo de bienvenida"}.` +
+            " El usuario puede solicitar su PIN desde la pantalla de inicio de sesión."
           );
         }
       }
@@ -121,13 +129,13 @@ export default function JuradoManager({ apiFetch, rubros }) {
     }
   };
 
-  const handleDeleteJurado = async (jurado) => {
-    if (!window.confirm(`¿Eliminar el jurado "${jurado.name || jurado.email}"? Esta acción no se puede deshacer.`)) {
+  const handleDeleteUser = async (user) => {
+    if (!window.confirm(`¿Eliminar el usuario "${user.name || user.email}"? Esta acción no se puede deshacer.`)) {
       return;
     }
     try {
-      await apiFetch(`/api/admin/jurados/${jurado.id}`, { method: "DELETE" });
-      setJurados((prev) => prev.filter((j) => j.id !== jurado.id));
+      await apiFetch(`/api/admin/jurados/${user.id}`, { method: "DELETE" });
+      setUsuarios((prev) => prev.filter((u) => u.id !== user.id));
     } catch (err) {
       setActionError(err.message);
     }
@@ -136,36 +144,38 @@ export default function JuradoManager({ apiFetch, rubros }) {
   const handleDeleteAll = async () => {
     try {
       const result = await apiFetch("/api/admin/jurados", { method: "DELETE" });
-      setJurados([]);
+      setUsuarios((prev) => prev.filter((u) => u.id === currentUserId || u.role === "admin"));
       setShowDeleteAllConfirm(false);
       window.alert(result.deleted !== undefined
-        ? `${result.deleted} jurado(s) eliminado(s).`
-        : "Jurados eliminados.");
+        ? `${result.deleted} usuario(s) eliminado(s).`
+        : "Usuarios eliminados.");
     } catch (err) {
       setActionError(err.message);
       setShowDeleteAllConfirm(false);
     }
   };
 
-  const asignacionesSummary = (jurado) => {
-    if (!jurado.asignaciones || jurado.asignaciones.length === 0) {
+  const asignacionesSummary = (user) => {
+    if (!user.asignaciones || user.asignaciones.length === 0) {
       return <span style={{ color: "var(--muted)" }}>Sin asignaciones</span>;
     }
-    return jurado.asignaciones
+    return user.asignaciones
       .map((a) => a.rubro_name)
       .join(", ");
   };
 
+  const isEditable = (user) => user.role !== "admin" && !user.isAdmin;
+
   return (
     <div className="admin-section" style={{ marginTop: 36 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <h2 style={{ marginBottom: 0 }}>Jurados</h2>
+        <h2 style={{ marginBottom: 0 }}>Usuarios y Roles</h2>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-ghost btn-sm btn-danger" onClick={() => setShowDeleteAllConfirm(true)}>
-            Eliminar todos los jurados
+            Eliminar todos los usuarios
           </button>
           <button className="btn btn-primary btn-sm" onClick={showForm ? () => setShowForm(false) : openCreate}>
-            {showForm ? "Cancelar" : "+ Nuevo jurado"}
+            {showForm ? "Cancelar" : "+ Nuevo usuario"}
           </button>
         </div>
       </div>
@@ -185,7 +195,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Nombre del jurado"
+                placeholder="Nombre del usuario"
               />
             </div>
             <div className="admin-field" style={{ flex: 1, minWidth: 200 }}>
@@ -217,6 +227,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
                 <option value="jurado">Jurado</option>
                 <option value="comisario">Comisario</option>
                 <option value="escribano">Escribano</option>
+                <option value="admin">Admin</option>
               </select>
             </div>
           </div>
@@ -245,7 +256,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
 
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <button className="btn btn-primary btn-sm" onClick={handleSave}>
-              {editingJurado ? "Guardar cambios" : "Crear jurado"}
+              {editingUser ? "Guardar cambios" : "Crear usuario"}
             </button>
             <button className="btn btn-ghost btn-sm" onClick={() => { setShowForm(false); resetForm(); }}>
               Cancelar
@@ -255,7 +266,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
       )}
 
       {loading ? (
-        <div className="notice" style={{ marginTop: 12 }}>Cargando jurados...</div>
+        <div className="notice" style={{ marginTop: 12 }}>Cargando usuarios...</div>
       ) : error ? (
         <div className="notice" style={{ marginTop: 12 }}>{error}</div>
       ) : (
@@ -271,41 +282,58 @@ export default function JuradoManager({ apiFetch, rubros }) {
             </tr>
           </thead>
           <tbody>
-            {jurados.map((j) => (
-              <tr key={j.id}>
-                <td>{j.name || "—"}</td>
-                <td>{j.email}</td>
-                <td>{j.dni || "—"}</td>
+            {usuarios.map((u) => (
+              <tr key={u.id}>
+                <td>{u.name || "—"}</td>
+                <td>{u.email}</td>
+                <td>{u.dni || "—"}</td>
                 <td>
-                  <span
-                    style={{
-                      padding: "2px 8px",
-                      borderRadius: 8,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      background: "var(--surface-3)",
-                    }}
-                  >
-                    {ROLE_LABELS[j.role] || j.role || "Jurado"}
-                  </span>
+                  {u.id === currentUserId ? (
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 8,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: "var(--surface-3)",
+                      }}
+                    >
+                      {ROLE_LABELS[u.role] || u.role || "Jurado"} (vos)
+                    </span>
+                  ) : (
+                    <select
+                      value={u.role}
+                      onChange={(e) => handleChangeRol(u.id, e.target.value)}
+                      style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--border)" }}
+                    >
+                      <option value="jurado">Jurado</option>
+                      <option value="comisario">Comisario</option>
+                      <option value="escribano">Escribano</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  )}
                 </td>
-                <td style={{ fontSize: 13 }}>{asignacionesSummary(j)}</td>
+                <td style={{ fontSize: 13 }}>{asignacionesSummary(u)}</td>
                 <td>
-                  <div className="admin-actions">
-                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(j)}>
-                      Editar
-                    </button>
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteJurado(j)}>
-                      Eliminar
-                    </button>
-                  </div>
+                  {isEditable(u) ? (
+                    <div className="admin-actions">
+                      <button className="btn btn-ghost btn-sm" onClick={() => openEdit(u)}>
+                        Editar
+                      </button>
+                      <button className="btn btn-danger btn-sm" onClick={() => handleDeleteUser(u)}>
+                        Eliminar
+                      </button>
+                    </div>
+                  ) : (
+                    <span style={{ color: "var(--muted)", fontSize: 13 }}>—</span>
+                  )}
                 </td>
               </tr>
             ))}
-            {jurados.length === 0 && (
+            {usuarios.length === 0 && (
               <tr>
                 <td colSpan={6} style={{ textAlign: "center", color: "var(--muted)", padding: 20 }}>
-                  No hay jurados cargados.
+                  No hay usuarios cargados.
                 </td>
               </tr>
             )}
@@ -317,7 +345,7 @@ export default function JuradoManager({ apiFetch, rubros }) {
         <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowDeleteAllConfirm(false)}>
           <section className="modal-panel" role="dialog" aria-modal="true" aria-label="Confirmar eliminación">
             <div className="modal-content" style={{ maxWidth: 420 }}>
-              <h2 style={{ marginTop: 0 }}>Eliminar todos los jurados</h2>
+              <h2 style={{ marginTop: 0 }}>Eliminar todos los usuarios</h2>
               <p>
                 Esta acción <strong>eliminará definitivamente</strong> todos los usuarios
                 no administradores (jurados, comisarios y escribanos), junto con sus asignaciones,

@@ -1,7 +1,6 @@
 import { useState, useCallback } from "react";
 import { useSession, signOut } from "../lib/auth-client";
 import { useTheme } from "../lib/use-theme";
-import { Link } from "react-router-dom";
 
 function SunIcon() {
   return (
@@ -27,28 +26,6 @@ const ROLE_LABELS = {
   jurado: "Jurado oficial",
 };
 
-const ROLE_NAV = {
-  admin: [
-    { path: "/admin", label: "Inicio" },
-    { path: "/admin#usuarios", label: "Usuarios" },
-    { path: "/admin#comparsas", label: "Comparsas" },
-    { path: "/admin#rubros", label: "Rubros" },
-    { path: "/admin#noches", label: "Noches" },
-    { path: "/admin#infracciones", label: "Infracciones" },
-    { path: "/admin#incidencias", label: "Incidencias" },
-    { path: "/admin#actas", label: "Actas" },
-  ],
-  comisario: [
-    { path: "/comisario", label: "Inicio" },
-  ],
-  escribano: [
-    { path: "/escribano", label: "Inicio" },
-  ],
-  jurado: [
-    { path: "/home", label: "Inicio" },
-  ],
-};
-
 export default function Header({ onLogout }) {
   const { data: session } = useSession();
   const [theme, toggleTheme] = useTheme();
@@ -57,7 +34,6 @@ export default function Header({ onLogout }) {
 
   const role = session?.user?.role || "jurado";
   const brandSub = ROLE_LABELS[role] || "Jurado oficial";
-  const navItems = ROLE_NAV[role] || ROLE_NAV.jurado;
 
   const handleToggleConnection = useCallback(() => {
     setOnline((prev) => !prev);
@@ -92,18 +68,6 @@ export default function Header({ onLogout }) {
             <div className="brand-sub">{brandSub}</div>
           </span>
         </div>
-        <nav style={{ display: "flex", gap: 4, marginLeft: 16 }}>
-          {navItems.map((item) => (
-            <Link
-              key={item.path}
-              className="btn btn-ghost btn-sm"
-              to={item.path}
-              style={{ textDecoration: "none", fontSize: 13 }}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
         <div className="topbar-spacer"></div>
         <div className="top-status">
           <button

@@ -57,7 +57,7 @@ export default function NocheManager({ apiFetch }) {
         apiFetch("/api/admin/comparsas"),
       ]);
       setNoches(n);
-      setJurados(j);
+      setJurados(j.filter((u) => u.role === "jurado"));
       setComparsas(c);
     } catch (err) {
       setError(err.message);

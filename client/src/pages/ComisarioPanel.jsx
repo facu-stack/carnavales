@@ -165,8 +165,14 @@ export default function ComisarioPanel() {
 
   if (isPending || loading) {
     return (
-      <div className="container" style={{ padding: "40px 20px", textAlign: "center" }}>
-        Cargando panel del comisario...
+      <div className="app">
+        <Header onLogout={handleLogout} />
+        <main className="stage">
+          <div className="wrap">
+            <h1 className="screen-title">Panel del Comisario</h1>
+            <p className="screen-lede">Cargando panel del comisario...</p>
+          </div>
+        </main>
       </div>
     );
   }
@@ -180,15 +186,12 @@ export default function ComisarioPanel() {
     : controles;
 
   return (
-    <div className="container" style={{ padding: "20px", maxWidth: 900, margin: "0 auto" }}>
+    <div className="app">
       <Header onLogout={handleLogout} />
-
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: 28, marginBottom: 8 }}>
-        Panel del Comisario
-      </h1>
-      <p style={{ color: "var(--muted)", marginBottom: 24 }}>
-        Registra controles e incidencias del corso.
-      </p>
+      <main className="stage">
+        <div className="wrap" style={{ maxWidth: 900 }}>
+          <h1 className="screen-title">Panel del Comisario</h1>
+          <p className="screen-lede">Registra controles e incidencias del corso.</p>
 
       {error && (
         <div className="card" style={{ padding: 16, marginBottom: 16, borderLeft: "4px solid var(--danger)" }}>
@@ -591,6 +594,8 @@ export default function ComisarioPanel() {
           </div>
         </div>
       )}
+        </div>
+      </main>
     </div>
   );
 }

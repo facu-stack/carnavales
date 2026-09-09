@@ -2,18 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession, signOut } from "../lib/auth-client";
 import { useNavigate } from "react-router-dom";
 import Header from "../components/Header";
-import JuradoManager from "../components/JuradoManager";
+import UsuariosManager from "../components/UsuariosManager";
 import NocheManager from "../components/NocheManager";
 import Resultados from "../components/Resultados";
 import { resetOtpSent } from "./VerifyCode";
 import { apiFetch } from "../lib/api";
-
-const ROLE_LABELS = {
-  jurado: "Jurado",
-  comisario: "Comisario",
-  escribano: "Escribano",
-  admin: "Admin",
-};
 
 export default function Admin() {
   const { data: session, isPending } = useSession();
@@ -23,8 +16,6 @@ export default function Admin() {
   const [rubros, setRubros] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  const [usuarios, setUsuarios] = useState([]);
 
   const [votos, setVotos] = useState([]);
   const [votosStatus, setVotosStatus] = useState({ loading: false, error: null });
@@ -129,7 +120,6 @@ export default function Admin() {
   useEffect(() => {
     fetchData();
     apiFetch("/api/admin/noches").then(setNoches).catch(() => {});
-    apiFetch("/api/admin/usuarios").then(setUsuarios).catch(() => {});
     loadInfracciones();
     loadIncidencias();
     loadActas();
@@ -318,18 +308,6 @@ export default function Admin() {
     }
   };
 
-  const handleChangeRol = async (userId, role) => {
-    try {
-      await apiFetch(`/api/admin/usuarios/${userId}/rol`, {
-        method: "PUT",
-        body: JSON.stringify({ role }),
-      });
-      setUsuarios((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)));
-    } catch (err) {
-      alert(err.message);
-    }
-  };
-
   return (
     <div className="app">
       <Header onLogout={handleLogout} />
@@ -337,6 +315,9 @@ export default function Admin() {
         <div className="wrap" style={{ maxWidth: 720 }}>
           <h1 className="screen-title">Panel de Administración</h1>
           <p className="screen-lede">Gestioná comparsas y rubros del jurado.</p>
+
+          {/* ---- Usuarios y Roles ---- */}
+          <UsuariosManager apiFetch={apiFetch} rubros={rubros} currentUserId={session?.user?.id} />
 
           {/* ---- Estado de votación ---- */}
           <div className="admin-section">
@@ -732,64 +713,6 @@ export default function Admin() {
             </table>
           </div>
 
-          {/* ---- Usuarios y Roles ---- */}
-          <div className="admin-section" id="usuarios" style={{ marginTop: 36 }}>
-            <h2>Usuarios y Roles</h2>
-            {usuarios.length === 0 ? (
-              <p className="notice">No hay usuarios registrados.</p>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table className="admin-table" style={{ marginTop: 12 }}>
-                  <thead>
-                    <tr>
-                      <th>Nombre</th>
-                      <th>Email</th>
-                      <th>Rol</th>
-                      <th>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {usuarios.map((u) => (
-                      <tr key={u.id}>
-                        <td>{u.name || "-"}</td>
-                        <td>{u.email}</td>
-                        <td>
-                          {u.id !== session?.user?.id ? (
-                            <select
-                              value={u.role}
-                              onChange={(e) => handleChangeRol(u.id, e.target.value)}
-                              style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--border)" }}
-                            >
-                              <option value="jurado">Jurado</option>
-                              <option value="comisario">Comisario</option>
-                              <option value="escribano">Escribano</option>
-                              <option value="admin">Admin</option>
-                            </select>
-                          ) : (
-                            <span
-                              style={{
-                                padding: "2px 8px",
-                                borderRadius: 8,
-                                fontSize: 12,
-                                fontWeight: 600,
-                                background: "var(--surface-3)",
-                              }}
-                            >
-                              {ROLE_LABELS[u.role] || u.role} (vos)
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ fontSize: 13, color: "var(--muted)" }}>
-                          DNI: {u.dni || "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
           {/* ---- Infracciones ---- */}
           <div className="admin-section" id="infracciones" style={{ marginTop: 36 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1123,9 +1046,6 @@ export default function Admin() {
               <p className="notice">No hay actas generadas.</p>
             )}
           </div>
-
-          {/* ---- Jurados ---- */}
-          <JuradoManager apiFetch={apiFetch} comparsas={comparsas} rubros={rubros} />
 
           <div style={{ marginTop: 28 }}>
             <button className="btn btn-ghost" onClick={() => signOut().then(() => (window.location.href = "/login"))}>
